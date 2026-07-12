@@ -24,7 +24,14 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 from cryptography.hazmat.primitives import serialization
 
 _KEY_FILE = Path(os.environ.get("ORACLE_KEY_FILE", "keys/oracle_ed25519.seed"))
+_DEFAULT_TTL = int(os.environ.get("ORACLE_VERDICT_TTL", "300"))  # seconds
 ALG = "ed25519"
+
+
+def _message(digest_hex: str, issued_at: int, ttl: int) -> bytes:
+    """The exact bytes we sign — binds the verdict to a freshness window so a
+    SAFE verdict can't be replayed after it expires."""
+    return f"{digest_hex}.{issued_at}.{ttl}".encode()
 
 
 def _load_or_create_key() -> tuple[Ed25519PrivateKey, str]:
@@ -68,22 +75,37 @@ class Signer:
     def public_key_hex(self) -> str:
         return self._pub_hex
 
-    def sign_digest(self, digest_hex: str) -> dict:
-        """Sign a verdict's sha256 digest; return an attachable signature envelope."""
-        sig = self._key.sign(bytes.fromhex(digest_hex)).hex()
+    def sign_digest(self, digest_hex: str, ttl: int | None = None) -> dict:
+        """Sign a verdict digest + freshness window; return an attachable envelope."""
+        issued_at = int(time.time())
+        ttl = _DEFAULT_TTL if ttl is None else ttl
+        sig = self._key.sign(_message(digest_hex, issued_at, ttl)).hex()
         return {
             "alg": ALG,
             "pubkey": self._pub_hex,
             "signature": sig,
-            "signed_at": int(time.time()),
+            "signed_at": issued_at,
+            "ttl": ttl,
+            "expires_at": issued_at + ttl,
         }
 
 
-def verify(digest_hex: str, signature_hex: str, pubkey_hex: str) -> bool:
-    """Offline verification helper — anyone can call this with the published pubkey."""
+def verify_envelope(digest_hex: str, env: dict, at: int | None = None) -> bool:
+    """Verify a signed verdict envelope: signature valid AND not expired."""
+    now = int(time.time()) if at is None else at
+    if now > env.get("expires_at", 0):
+        return False
+    return verify(_message(digest_hex, env["signed_at"], env["ttl"]),
+                  env["signature"], env["pubkey"])
+
+
+def verify(message: bytes | str, signature_hex: str, pubkey_hex: str) -> bool:
+    """Low-level Ed25519 verify over raw message bytes."""
+    if isinstance(message, str):
+        message = message.encode()
     try:
         pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(pubkey_hex))
-        pub.verify(bytes.fromhex(signature_hex), bytes.fromhex(digest_hex))
+        pub.verify(bytes.fromhex(signature_hex), message)
         return True
     except Exception:  # noqa: BLE001 — any failure = invalid
         return False
