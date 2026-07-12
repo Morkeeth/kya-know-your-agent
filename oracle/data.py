@@ -7,38 +7,49 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
 ONCHAINOS_BIN = os.environ.get("ONCHAINOS_BIN", "onchainos")
 _PROBE_TIMEOUT = float(os.environ.get("PROBE_TIMEOUT", "4.0"))
+_CACHE_TTL = float(os.environ.get("CACHE_TTL", "60"))
+
+# Tiny in-process TTL cache so repeat verifies (and the 90s demo) don't re-shell
+# onchainos every call. Keyed by agentId.
+_cache: dict[str, tuple[float, tuple[dict, list[dict]]]] = {}
 
 
 class AgentNotFound(Exception):
     pass
 
 
-def fetch_agent(agent_id: str) -> tuple[dict, list[dict]]:
-    """Return (agent_info, services) for an agentId. Raises AgentNotFound."""
+def _run_onchainos(args: list[str]) -> dict:
     try:
         proc = subprocess.run(
-            [ONCHAINOS_BIN, "agent", "service-list", "--agent-id", str(agent_id)],
-            capture_output=True, text=True, timeout=30,
+            [ONCHAINOS_BIN, *args], capture_output=True, text=True, timeout=30,
         )
     except FileNotFoundError as e:
         raise RuntimeError(f"onchainos binary not found ({ONCHAINOS_BIN})") from e
     except subprocess.TimeoutExpired as e:
         raise RuntimeError("onchainos timed out") from e
-
     if proc.returncode != 0:
         raise RuntimeError(f"onchainos error: {proc.stderr.strip()[:300]}")
-
     try:
-        payload = json.loads(proc.stdout)
+        return json.loads(proc.stdout)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"unparseable onchainos output: {proc.stdout[:200]}") from e
 
+
+def fetch_agent(agent_id: str) -> tuple[dict, list[dict]]:
+    """Return (agent_info, services) for an agentId. Raises AgentNotFound."""
+    key = str(agent_id)
+    hit = _cache.get(key)
+    if hit and (time.time() - hit[0]) < _CACHE_TTL:
+        return hit[1]
+
+    payload = _run_onchainos(["agent", "service-list", "--agent-id", key])
     data = payload.get("data") or []
     if not data:
         raise AgentNotFound(f"no agent #{agent_id} on OKX.AI")
@@ -46,11 +57,48 @@ def fetch_agent(agent_id: str) -> tuple[dict, list[dict]]:
     block = data[0]
     # agentInfo is null for User/buyer identities (non-ASPs); coerce to {} so the
     # engine can return a clean "not an ASP" verdict instead of crashing.
-    return (block.get("agentInfo") or {}), (block.get("list") or [])
+    result = (block.get("agentInfo") or {}), (block.get("list") or [])
+    _cache[key] = (time.time(), result)
+    return result
+
+
+def _pick_exact(items: list[dict], name: str) -> str | None:
+    """Return the agentId whose name EXACTLY (case-insensitively) matches, else None.
+
+    Marketplace search is semantic and ranks loosely — it will happily return
+    'Factor Credit Desk' for a query of 'Otto AI'. For a trust oracle a confident
+    wrong answer is worse than none, so we never fall back to the top hit.
+    """
+    target = name.strip().lower()
+    for it in items:
+        if str(it.get("name") or "").strip().lower() == target:
+            return str(it.get("agentId"))
+    return None
+
+
+def resolve_agent_id(name: str) -> str | None:
+    """Resolve an ASP name to its agentId via exact-name match on marketplace search."""
+    payload = _run_onchainos(["agent", "search", "--query", name])
+    items = (payload.get("data") or {}).get("list") or []
+    return _pick_exact(items, name)
+
+
+_UA = "Mozilla/5.0 (compatible; OracleTrustProbe/0.2; +https://okx.ai)"
 
 
 def probe_endpoints(services: list[dict]) -> dict[str, dict]:
-    """HTTP-probe each service endpoint concurrently. Any HTTP response = alive."""
+    """
+    HTTP-probe each service endpoint concurrently and classify it:
+
+      reachable : we got any HTTP response (host is up)
+      healthy   : responded 2xx or 402 AND did not redirect off-host
+                  (a 404 / 5xx / redirect to google.com is NOT a working service)
+      status    : final HTTP status, or None
+      down_kind : 'refused' (connection refused/DNS)  vs  'timeout' (unknown)
+
+    The healthy/reachable split is what stops a parked domain scoring as live and
+    stops a slow/WAF'd legit endpoint being hard-BLOCKed on a single timeout.
+    """
     urls = sorted({s["endpoint"] for s in services if s.get("endpoint")})
     if not urls:
         return {}
@@ -59,15 +107,65 @@ def probe_endpoints(services: list[dict]) -> dict[str, dict]:
     return {url: res for url, res in zip(urls, results)}
 
 
-def _probe_one(url: str) -> dict:
-    # A GET that returns ANY status (200/402/404/405) means the host is up.
-    # Only a connection error / timeout counts as "down".
+def _same_host(a: str, b: str) -> bool:
     try:
-        r = httpx.get(url, timeout=_PROBE_TIMEOUT, follow_redirects=True)
-        return {"reachable": True, "status": r.status_code}
-    except httpx.HTTPError:
+        return httpx.URL(a).host.lower() == httpx.URL(b).host.lower()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _is_json(r: httpx.Response) -> bool:
+    if "json" in r.headers.get("content-type", "").lower():
+        return True
+    try:
+        json.loads(r.text)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+# category rank, best -> worst. healthy = {x402, api}.
+_RANK = {"x402": 0, "api": 1, "parked": 2, "broken": 3, "offhost": 4, "down": 5}
+
+
+def _classify(url: str, r: httpx.Response) -> str:
+    """Classify one response the way an A2MCP caller would experience the endpoint."""
+    code = r.status_code
+    if not _same_host(url, str(r.url)):
+        return "offhost"                      # redirected away — parked / hijacked
+    if code == 402:
+        return "x402"                         # proper payment challenge = working paid endpoint
+    if 500 <= code < 600:
+        return "broken"                       # server error
+    if 200 <= code < 300 and _is_json(r):
+        return "api"                          # serving JSON
+    if code == 405 or (400 <= code < 500 and _is_json(r)):
+        return "api"                          # endpoint exists; wrong method/params (e.g. POST-only)
+    if 200 <= code < 300:
+        return "parked"                       # 2xx HTML landing page — not an API
+    return "broken"
+
+
+def _probe_one(url: str) -> dict:
+    # A2MCP endpoints are POST-first; GET commonly yields 402/405. Try both and
+    # keep the BEST evidence, so a POST-only service isn't mistaken for dead.
+    best_cat, best_status, down_kind = None, None, "refused"
+    for method in ("POST", "GET"):
         try:
-            r = httpx.head(url, timeout=_PROBE_TIMEOUT, follow_redirects=True)
-            return {"reachable": True, "status": r.status_code}
+            r = httpx.request(
+                method, url, timeout=_PROBE_TIMEOUT, follow_redirects=True,
+                headers={"User-Agent": _UA}, json={} if method == "POST" else None,
+            )
+            cat = _classify(url, r)
+            if best_cat is None or _RANK[cat] < _RANK[best_cat]:
+                best_cat, best_status = cat, r.status_code
+        except httpx.TimeoutException:
+            down_kind = "timeout"
         except httpx.HTTPError:
-            return {"reachable": False, "status": None}
+            down_kind = "refused"
+
+    if best_cat is None:
+        return {"reachable": False, "status": None, "healthy": False,
+                "category": "down", "down_kind": down_kind}
+    return {"reachable": True, "status": best_status, "healthy": best_cat in ("x402", "api"),
+            "category": best_cat, "down_kind": None}

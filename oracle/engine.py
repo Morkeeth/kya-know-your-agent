@@ -22,15 +22,9 @@ Verdict scale:
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 from dataclasses import dataclass, field, asdict
 from typing import Any
-
-# A shared demo key; real Ed25519 signing lives in oracle/signing.py and is used
-# by the service layer. This HMAC keeps the pure engine dependency-free and its
-# verdicts tamper-evident on their own.
-_SIGNING_KEY = b"oracle-demo-signing-key-v0"
 
 # Observed A2MCP fee range on the live marketplace (USDT): 0.001 .. 0.50.
 _FEE_SANE_MAX = 2.0
@@ -60,10 +54,18 @@ class Verdict:
     reasons: list[str] = field(default_factory=list)
     signals: list[dict] = field(default_factory=list)
     evidence: dict = field(default_factory=dict)
-    signature: str = ""
+    digest: str = ""   # sha256 of the canonical core; what the Ed25519 layer signs
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+    def canonical_core(self) -> str:
+        """The stable payload that identifies this verdict — signed by the service."""
+        return json.dumps(
+            {"agent_id": self.agent_id, "verdict": self.verdict,
+             "score": self.score, "confidence": self.confidence},
+            sort_keys=True, separators=(",", ":"),
+        )
 
 
 def _live_label(probe: dict) -> str:
@@ -89,7 +91,7 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
                 "Target is not a listed ASP (no agentInfo / zero services).", "critical", cap=25))],
             evidence={"isAsp": False},
         )
-        v.signature = _sign(v)
+        v.digest = _digest(v)
         return v
 
     name = str(agent_info.get("name") or "").strip()
@@ -97,20 +99,33 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     signals: list[Signal] = []
 
     # ---- Liveness (a dead endpoint is the #1 real-world failure) ----
+    # "healthy" (2xx/402, on-host) is what counts — a parked domain, a 404, or a
+    # redirect off to google.com is NOT a working service. "reachable but not
+    # healthy" and "timeout" are treated more softly than an outright refusal.
     endpoints = [s.get("endpoint") for s in services if s.get("endpoint")]
     if endpoints:
+        n = len(endpoints)
+        healthy = [e for e in endpoints if probes.get(e, {}).get("healthy")]
         reachable = [e for e in endpoints if probes.get(e, {}).get("reachable")]
         got_402 = any(probes.get(e, {}).get("status") == 402 for e in endpoints)
-        if len(reachable) == len(endpoints):
-            signals.append(Signal("liveness", +18,
-                f"All {len(endpoints)} service endpoint(s) responding.", "good"))
-        elif reachable:
+        kinds = {probes.get(e, {}).get("down_kind") for e in endpoints}
+        if len(healthy) == n:
+            signals.append(Signal("liveness", +18, f"All {n} service endpoint(s) serving (2xx/402).", "good"))
+        elif healthy:
             signals.append(Signal("liveness", +2,
-                f"{len(reachable)}/{len(endpoints)} endpoints responding — partial outage.",
-                "warn", cap=60))
+                f"Only {len(healthy)}/{n} endpoints actually serving — partial outage.", "warn", cap=62))
+        elif reachable:
+            # Hosts answer but with 404/5xx or an off-host redirect: present, not serving.
+            signals.append(Signal("liveness", -15,
+                f"Endpoints respond but none serve a valid response (404/redirect) — likely broken.",
+                "critical", cap=45))
+        elif "timeout" in kinds and "refused" not in kinds:
+            # Couldn't reach, but only via timeout — could be WAF/cold-start. Unverified, not proven-dead.
+            signals.append(Signal("liveness", -12,
+                f"Could not reach {n} endpoint(s) (timeout) — liveness unverified.", "warn", cap=58))
         else:
             signals.append(Signal("liveness", -40,
-                f"None of {len(endpoints)} listed endpoint(s) reachable — service is DOWN.",
+                f"None of {n} endpoint(s) reachable (connection refused) — service is DOWN.",
                 "critical", cap=25))
         if got_402:
             signals.append(Signal("x402", +4,
@@ -120,35 +135,54 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
             "No callable endpoint (A2A-only or incomplete listing) — cannot verify delivery.",
             "warn", cap=60))
 
-    # ---- OKX review + status (table stakes — small credit, big penalty if missing) ----
-    approval = agent_info.get("approvalStatus")
+    # ---- OKX review + status (types coerced; ABSENT != inactive — treat as unknown) ----
+    approval = _to_int(agent_info.get("approvalStatus"))
     if approval == 4:
         signals.append(Signal("review", +6, "Passed OKX listing review.", "good"))
-    else:
+    elif approval is not None:
         signals.append(Signal("review", -12,
             f"Has NOT passed OKX review (approvalStatus={approval}).", "warn", cap=55))
 
-    if agent_info.get("onlineStatus") == 1:
+    online = _to_int(agent_info.get("onlineStatus"))
+    if online == 1:
         signals.append(Signal("online", +3, "Marked online.", "good"))
-    else:
+    elif online is not None:
         signals.append(Signal("online", -8, "Marked offline.", "warn"))
 
-    if agent_info.get("status") != 1:
+    status = _to_int(agent_info.get("status"))
+    if status is not None and status != 1:
         signals.append(Signal("active", -25, "Agent is not active.", "critical", cap=25))
 
-    # ---- Reputation — the EARNED signal that gates SAFE ----
-    sales = int(agent_info.get("salesCount") or 0)
-    if sales >= 100:
-        signals.append(Signal("sales", +26, f"{sales} completed sales — strong, earned track record.", "good"))
-    elif sales >= 10:
-        signals.append(Signal("sales", +16, f"{sales} completed sales — real track record.", "good"))
-    elif sales >= 1:
-        signals.append(Signal("sales", +4,
-            f"Only {sales} completed sale(s) — barely proven.", "warn", cap=69))
-    else:
+    # ---- Reputation — EARNED settled VOLUME, not a raw (wash-tradeable) count ----
+    # Raw salesCount is the cheapest signal to fake: wash-buy a 0.001-USDT service
+    # 10x for ~$0.01 and you'd clear a count-based gate. So SAFE is gated on
+    # settled volume (sales x median fee), and sub-cent sales cap at CAUTION.
+    sales = _to_int(agent_info.get("salesCount")) or 0
+    median_fee = _median([f for f in (_to_float(s.get("fee")) for s in services) if f is not None])
+    volume = sales * median_fee if (median_fee is not None) else None
+    vtxt = f" (~{volume:.2f} USDT settled)" if volume is not None else ""
+
+    # A high *count* is expensive to wash even at low prices; real *volume* also
+    # proves it. Either clears SAFE. A handful of sub-cent sales clears neither.
+    strong = sales >= 100 or (volume is not None and volume >= 5)
+    real = sales >= 50 or (volume is not None and volume >= 0.5)
+
+    if sales == 0:
         signals.append(Signal("sales", 0,
             "No completed sales yet — live but UNPROVEN. Nobody has actually used it.",
             "warn", cap=64))
+    elif sales < 10:
+        signals.append(Signal("sales", +4,
+            f"Only {sales} completed sale(s){vtxt} — barely proven.", "warn", cap=69))
+    elif strong:
+        signals.append(Signal("sales", +26,
+            f"{sales} sales{vtxt} — strong, earned track record.", "good"))
+    elif real:
+        signals.append(Signal("sales", +16, f"{sales} sales{vtxt} — real track record.", "good"))
+    else:
+        signals.append(Signal("sales", +6,
+            f"{sales} sales but thin volume{vtxt} — count is cheap to wash-trade; unconvincing.",
+            "warn", cap=69))
 
     sec_rate = _to_float(agent_info.get("securityRate"))
     if sec_rate is not None:
@@ -164,10 +198,12 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     if not (agent_info.get("profileDescription") or "").strip():
         signals.append(Signal("effort", -4, "No profile description — low-effort or placeholder listing.", "warn"))
 
+    # Test-marker only BLOCKs when also unproven, so a legit high-sales agent that
+    # merely contains a marker word (e.g. "RiskControl Analytics") isn't nuked.
     lname = name.lower()
-    if any(m in lname for m in _TEST_MARKERS):
+    if any(m in lname for m in _TEST_MARKERS) and sales == 0:
         signals.append(Signal("test_account", -30,
-            "Name resembles a test / placeholder account.", "critical", cap=20))
+            "Name resembles a test / placeholder account and has no sales.", "critical", cap=20))
 
     # ---- Price sanity (per A2MCP service) ----
     for s in services:
@@ -177,6 +213,13 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
                 f"Service '{s.get('serviceName')}' at {fee} USDT — well above marketplace norm.", "warn"))
             break
 
+    # ---- Confidence gates the verdict: thin evidence can't earn SAFE ----
+    confidence = _confidence(agent_info, services, endpoints)
+    if confidence < 50:
+        signals.append(Signal("low_confidence", 0,
+            f"Only {confidence}% of trust signals available — too little evidence to clear.",
+            "warn", cap=69))
+
     # ---- Aggregate: additive, then apply the lowest cap ----
     raw = 50 + sum(s.delta for s in signals)
     caps = [s.cap for s in signals if s.cap is not None]
@@ -184,7 +227,6 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     score = max(0, min(100, min(raw, ceiling)))
     verdict = SAFE if score >= 70 else CAUTION if score >= 45 else BLOCK
 
-    confidence = _confidence(agent_info, services, endpoints)
     reasons = _headline_reasons(signals, score, ceiling)
     evidence = {
         "isAsp": True,
@@ -200,7 +242,7 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     v = Verdict(agent_id=aid, name=name, verdict=verdict, score=score,
                 confidence=confidence, reasons=reasons,
                 signals=[asdict(s) for s in signals], evidence=evidence)
-    v.signature = _sign(v)
+    v.digest = _digest(v)
     return v
 
 
@@ -232,12 +274,8 @@ def _headline_reasons(signals: list[Signal], score: int, ceiling: int) -> list[s
     return out[:6]
 
 
-def _sign(v: Verdict) -> str:
-    payload = json.dumps(
-        {"agent_id": v.agent_id, "verdict": v.verdict, "score": v.score},
-        sort_keys=True, separators=(",", ":"),
-    ).encode()
-    return hmac.new(_SIGNING_KEY, payload, hashlib.sha256).hexdigest()[:32]
+def _digest(v: Verdict) -> str:
+    return hashlib.sha256(v.canonical_core().encode()).hexdigest()
 
 
 def _to_float(x: Any) -> float | None:
@@ -247,3 +285,18 @@ def _to_float(x: Any) -> float | None:
         return float(x)
     except (TypeError, ValueError):
         return None
+
+
+def _to_int(x: Any) -> int | None:
+    """Tolerant int: handles 4, "4", "4.0", 4.0 — anything the CLI might emit."""
+    f = _to_float(x)
+    return int(f) if f is not None else None
+
+
+def _median(xs: list[float]) -> float | None:
+    if not xs:
+        return None
+    s = sorted(xs)
+    n = len(s)
+    mid = n // 2
+    return s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2
