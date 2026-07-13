@@ -30,8 +30,8 @@ app = FastAPI(
 
 _signer = Signer()
 
-# Locks down the SVG document surface (badges embedded as <img> render fine).
-_SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'"
+# Locks down the SVG document surface; img-src data: allows the embedded logo.
+_SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
 
 
 def _date(ts: int) -> str:

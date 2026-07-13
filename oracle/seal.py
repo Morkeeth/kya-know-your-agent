@@ -16,6 +16,23 @@ refs/scripts/fonts. Serve with a locked-down CSP.
 """
 from __future__ import annotations
 
+import base64
+import functools
+from pathlib import Path
+
+_ASSET = Path(__file__).resolve().parent / "assets" / "kya_wordmark.png"
+_LOGO_AR = 348 / 185  # width/height of the extracted wordmark
+
+
+@functools.lru_cache(maxsize=1)
+def _logo_uri() -> str | None:
+    """The real KYA wordmark as a data URI (embedded, self-contained). None if absent."""
+    try:
+        return "data:image/png;base64," + base64.b64encode(_ASSET.read_bytes()).decode()
+    except OSError:
+        return None
+
+
 # ---- KYA brand tokens ----
 BG = "#0B0B0C"          # near-black page
 PANEL = "#141416"       # slightly raised panel
@@ -105,7 +122,12 @@ def _eye(cx: float, cy: float, scale: float, color: str, state: str) -> str:
 
 
 def _wordmark(x: float, y: float, size: float, eye_color: str = LIME) -> str:
-    """'KYA' with the eye tucked into the A (approximation of the brand mark)."""
+    """The real KYA wordmark (embedded PNG) with the eye in the A; text fallback."""
+    uri = _logo_uri()
+    if uri:
+        h = size * 1.15
+        return (f'<image x="{x:.1f}" y="{y-size*0.86:.1f}" height="{h:.1f}" '
+                f'width="{h*_LOGO_AR:.1f}" href="{uri}" preserveAspectRatio="xMinYMid meet"/>')
     return (f'<text x="{x:.1f}" y="{y:.1f}" font-family="{_ROUND}" font-weight="800" '
             f'font-size="{size:.0f}" letter-spacing="-1" fill="{INK}">KYA</text>'
             f'<circle cx="{x+size*1.62:.1f}" cy="{y-size*0.30:.1f}" r="{size*0.09:.1f}" fill="{eye_color}"/>')
