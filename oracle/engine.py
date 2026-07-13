@@ -310,10 +310,10 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         if identity.get("payto") == "match":
             signals.append(Signal("payto", +6,
                 "x402 payment routes to the agent's registered wallet (payTo verified).", "good"))
-        elif identity.get("payto") == "mismatch":
-            signals.append(Signal("payto", -40,
-                "x402 payment routes to a wallet that ISN'T the agent's registered one — "
-                "fund diversion.", "critical", cap=25))
+        # NOTE: a payTo that DIFFERS from the identity wallet is NOT treated as fund
+        # diversion — legit x402 routes through a facilitator / separate payout wallet
+        # (the slice-1 spike's facilitator caveat), so a mismatch is uninformative
+        # here and must not BLOCK. Only a positive match earns credit.
 
     # ---- A2: audit reputation by WHO reviewed, not the aggregate star average ----
     if feedback:

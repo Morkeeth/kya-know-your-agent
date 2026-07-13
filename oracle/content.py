@@ -23,26 +23,37 @@ _INVISIBLE = {
     "⁧": "right-to-left isolate", "­": "soft hyphen",
 }
 
+# Unambiguous CREDENTIAL nouns — phrases that essentially never appear in a legit
+# tool description. Deliberately excludes bare "token"/"secret"/"wallet"/"password"
+# (a blockchain API says "tokenAddress", "wallet address", "access is read-only"
+# constantly — matching those is the false-positive that BLOCKs honest agents).
+_SECRET = (r"(?:private[\s_-]*key|seed\s*phrase|mnemonic|secret[\s_-]*key|"
+           r"api[\s_-]*key|access[\s_-]*token|auth(?:orization)?[\s_-]*token|"
+           r"bearer[\s_-]*token|session[\s_-]*token|passphrase|credentials?|"
+           r"id_rsa|\.ssh\b|\.env\b|aws_secret|OPENAI_|ANTHROPIC_)")
+# Credential mentions so alarming that a bare reference (no verb) is already a warn.
+_SECRET_ALARMING = r"(?:private[\s_-]*key|seed\s*phrase|mnemonic|id_rsa|\.ssh\b|aws_secret)"
+
 # Instruction-injection & exfiltration patterns. Each: (regex, kind, severity).
 # 'critical' => a real poisoning attempt (BLOCK); 'warn' => suspicious (cap).
 _PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r"ignore\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions|prompts?|context)", re.I),
      "instruction-override", "critical"),
-    (re.compile(r"disregard\s+(the\s+|your\s+|all\s+)?(previous|prior|above|system|earlier)", re.I),
+    (re.compile(r"disregard\s+(the\s+|your\s+|all\s+)?(previous|prior|above|system|earlier)\s+(instruction|prompt|context|message|rule)", re.I),
      "instruction-override", "critical"),
-    (re.compile(r"do\s+not\s+(tell|inform|mention|reveal|notify|alert)\b.{0,30}\b(user|human|owner|operator)", re.I),
+    (re.compile(r"do\s+not\s+(tell|inform|mention|reveal|notify|alert|disclose)\b.{0,30}\b(user|human|owner|operator|caller)", re.I),
      "hide-from-user", "critical"),
-    (re.compile(r"(before|prior to)\s+(using|calling|invoking|running)\s+(this|any|the)\s+tool", re.I),
-     "tool-preamble-injection", "critical"),
-    (re.compile(r"\b(system\s*prompt|developer\s*message|</?(system|important|secret)>)", re.I),
+    # Cross-tool injection (line-jumping): trying to alter how OTHER tools behave.
+    # 'this tool' alone is legit API doc, so require any/all/other/each.
+    (re.compile(r"(before|prior to|after|whenever)\s+(using|calling|invoking|running)\s+(any|all|other|each|every|the\s+next)\s+tool", re.I),
+     "cross-tool-injection", "critical"),
+    (re.compile(r"(system\s*prompt|developer\s*message|</?(system|important|secret|s)>)", re.I),
      "system-prompt-injection", "critical"),
-    (re.compile(r"(exfiltrate|leak|forward|send|upload|post|transmit)\b.{0,40}\b"
-                r"(private\s*key|seed\s*phrase|mnemonic|api[\s_-]*key|secret|password|token|wallet|credential)", re.I),
+    # Verb near an UNAMBIGUOUS credential -> exfiltration/theft attempt.
+    (re.compile(r"(exfiltrate|leak|steal|forward|upload|transmit|reveal|expose|send|read|cat|dump|include|print)"
+                r"\b.{0,40}\b" + _SECRET, re.I),
      "secret-exfiltration", "critical"),
-    (re.compile(r"(private\s*key|seed\s*phrase|mnemonic|\.ssh|id_rsa|aws_secret|env\s*file|\.env\b)", re.I),
-     "secret-reference", "warn"),
-    (re.compile(r"you\s+(must|should|shall|will)\s+(always|now|immediately|first)\b", re.I),
-     "imperative-directive", "warn"),
+    (re.compile(_SECRET_ALARMING, re.I), "secret-reference", "warn"),
     (re.compile(r"\b(base64|atob|fromCharCode|eval|exec)\s*\(", re.I),
      "obfuscated-payload", "warn"),
 ]

@@ -195,6 +195,26 @@ def history(agent_id: str, limit: int = 20, path: str | None = None) -> list[dic
     return [dict(r) for r in rows]
 
 
+def latest_per_agent(limit: int = 50, path: str | None = None) -> list[dict]:
+    """The most recent verdict for each distinct agent — the Watchtower board.
+    Uses SQLite's bare-column-with-MAX rule to pick the newest row per agent."""
+    with _conn(path) as con:
+        rows = con.execute(
+            "SELECT agent_id, verdict, score, confidence, MAX(issued_at) AS issued_at, payload"
+            " FROM verdicts GROUP BY agent_id ORDER BY issued_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["name"] = (json.loads(d.pop("payload") or "{}") or {}).get("name") or ""
+        except (ValueError, TypeError):
+            d["name"] = ""
+        out.append(d)
+    return out
+
+
 def recent_changes(limit: int = 20, path: str | None = None) -> list[dict]:
     with _conn(path) as con:
         rows = con.execute(

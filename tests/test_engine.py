@@ -116,12 +116,14 @@ def test_endpoint_borrowing_mismatch_forces_block():
     assert any(s["key"] == "domain_binding" for s in v.signals)
 
 
-def test_paytO_mismatch_forces_block():
-    """x402 routes payment to a wallet that isn't the agent's — fund diversion."""
+def test_paytO_mismatch_is_neutral_not_block():
+    """A payTo differing from the identity wallet is legit facilitator routing, not
+    fund diversion — must NOT BLOCK a proven agent (regression: #2023 false BLOCK)."""
     ep = "https://svc.example.com/api"
-    v = score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep),
-                    identity={"domain_binding": "absent", "payto": "mismatch"})
-    assert v.verdict == BLOCK
+    base = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep))
+    mism = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep),
+                       identity={"domain_binding": "absent", "payto": "mismatch"})
+    assert mism.verdict == SAFE and mism.score == base.score
 
 
 def test_identity_match_flags_but_stays_safe():
