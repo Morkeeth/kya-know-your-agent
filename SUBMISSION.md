@@ -1,5 +1,10 @@
 # KYA — OKX.AI Genesis Hackathon submission kit
 
+## ✅ LIVE STATUS
+- **Deployed:** https://kya-production-f846.up.railway.app (`/verify`, `/passport`, `/seal`, `/pubkey`) — working, signed verdicts.
+- **Registered ASP:** **KYA · Agent ID #5290** (A2MCP, free) — created on-chain (tx `0x71f851…`), **in ≤24h review**. Callable now via Agent ID #5290 or the endpoint.
+- **Remaining (yours):** record demo · X post · Google form.
+
 **Deadline: Jul 17 2026, 23:59 UTC.** Valid submission = ASP **built + approved & listed** on OKX.AI + an **X post (#OKXAI)** + the **Google form**. The approve+list review is ≤24h, so **register early**.
 
 Critical path (the long poles are yours — I've made them zero-friction):
@@ -77,7 +82,7 @@ Narrative (record screen):
 
 - **Project name:** KYA — Know Your Agent
 - **What it does (1–2 lines):** A trust oracle for the agent economy. Call it before transacting with any OKX.AI agent and get a signed SAFE/CAUTION/BLOCK verdict from settled reputation, live endpoint + malicious-host scanning, and reviewer-integrity analysis — the agent-vetting primitive the marketplace is missing.
-- **ASP name / Agent ID:** KYA / `#<id from activate>`
+- **ASP name / Agent ID:** KYA / **#5290**  ·  endpoint `https://kya-production-f846.up.railway.app/verify`
 - **Service type:** A2MCP (free endpoint), Ed25519-signed verdicts
 - **X post link:** `<paste after posting>`
 - **Category:** Finance Copilot / Software Utility (trust infrastructure)
