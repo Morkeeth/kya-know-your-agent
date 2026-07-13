@@ -35,7 +35,8 @@ def _run_onchainos(args: list[str]) -> dict:
     except subprocess.TimeoutExpired as e:
         raise RuntimeError("onchainos timed out") from e
     if proc.returncode != 0:
-        raise RuntimeError(f"onchainos error: {proc.stderr.strip()[:300]}")
+        msg = (proc.stderr.strip() or proc.stdout.strip() or "(no output)")[:400]
+        raise RuntimeError(f"onchainos rc={proc.returncode}: {msg}")
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as e:
