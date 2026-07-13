@@ -77,7 +77,8 @@ def _live_label(probe: dict) -> str:
 
 def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str, dict],
                 agent_id: str | None = None, *, malicious_hosts: list[str] | None = None,
-                feedback: dict | None = None, owner_addrs: list[str] | None = None) -> Verdict:
+                feedback: dict | None = None, owner_addrs: list[str] | None = None,
+                history: dict | None = None) -> Verdict:
     """
     agent_info    : the `agentInfo` from `onchainos agent service-list` (may be None).
     services      : the `list` array (each has endpoint, fee, serviceType, ...).
@@ -145,6 +146,21 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         if got_402:
             signals.append(Signal("x402", +4,
                 "Paid endpoint returns a proper 402 challenge (x402 correctly implemented).", "good"))
+
+        # ---- Rolling uptime / latency from probe HISTORY (single-shot is a lie) ----
+        # A single lucky probe can't tell a rock-solid endpoint from a flapping one.
+        # Once we have samples, a low rolling availability caps SAFE and a slow P95
+        # is a soft warning — this is the signal that only exists because we persist.
+        if history:
+            worst = min((h.get("uptime", 1.0) for h in history.values()), default=1.0)
+            if worst < 0.95:
+                signals.append(Signal("uptime", -14,
+                    f"Rolling endpoint availability {worst:.0%} (<95%) — flapping/unreliable over time.",
+                    "warn", cap=62))
+            slow = max((h.get("p95_latency_ms") or 0 for h in history.values()), default=0)
+            if slow >= 4000:
+                signals.append(Signal("latency", -4,
+                    f"P95 endpoint latency {slow}ms — degraded, technically-up service.", "warn"))
     else:
         signals.append(Signal("liveness", 0,
             "No callable endpoint (A2A-only or incomplete listing) — cannot verify delivery.",

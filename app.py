@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
 from oracle import AgentNotFound
+from oracle import store
 from oracle.data import resolve_agent_id
 from oracle.verify import assess
 from oracle.persona import pronounce, TAGLINE
@@ -118,6 +119,22 @@ def passport(agentId: str | None = Query(default=None), name: str | None = Query
     )
     return Response(svg, media_type="image/svg+xml",
                     headers={"Content-Security-Policy": _SVG_CSP, "Cache-Control": "max-age=300"})
+
+
+@app.get("/history")
+def history(agentId: str | None = Query(default=None), name: str | None = Query(default=None),
+            limit: int = Query(default=20, ge=1, le=100)):
+    """Every verdict KYA has issued for this agent — trust is a timeline, not a snapshot."""
+    aid = _resolve(agentId, name)
+    return {"agent_id": aid, "history": store.history(aid, limit=limit),
+            "uptime": store.uptime(aid)}
+
+
+@app.get("/changes")
+def changes(limit: int = Query(default=20, ge=1, le=100)):
+    """Recent verdict TRANSITIONS across all agents — who KYA re-verified up or down
+    after they changed (patched a dead endpoint, lost their reviews, went offline)."""
+    return {"changes": store.recent_changes(limit=limit)}
 
 
 if __name__ == "__main__":

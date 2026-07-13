@@ -295,27 +295,31 @@ def _probe_one(url: str) -> dict:
     try:
         guard_url(url)
     except BlockedTarget as e:
-        return {"reachable": False, "status": None, "healthy": False,
+        return {"reachable": False, "status": None, "healthy": False, "latency_ms": None,
                 "category": "blocked", "down_kind": "blocked", "block_reason": str(e)}
     # A2MCP endpoints are POST-first; GET commonly yields 402/405. Try both and
     # keep the BEST evidence, so a POST-only service isn't mistaken for dead.
-    best_cat, best_status, down_kind = None, None, "refused"
+    best_cat, best_status, best_latency, down_kind = None, None, None, "refused"
     for method in ("POST", "GET"):
+        t0 = time.perf_counter()
         try:
             r = httpx.request(
                 method, url, timeout=_PROBE_TIMEOUT, follow_redirects=False,
                 headers={"User-Agent": _UA}, json={} if method == "POST" else None,
             )
-            cat = _classify(url, r)
-            if best_cat is None or _RANK[cat] < _RANK[best_cat]:
-                best_cat, best_status = cat, r.status_code
         except httpx.TimeoutException:
             down_kind = "timeout"
+            continue
         except httpx.HTTPError:
             down_kind = "refused"
+            continue
+        elapsed = int((time.perf_counter() - t0) * 1000)
+        cat = _classify(url, r)
+        if best_cat is None or _RANK[cat] < _RANK[best_cat]:
+            best_cat, best_status, best_latency = cat, r.status_code, elapsed
 
     if best_cat is None:
-        return {"reachable": False, "status": None, "healthy": False,
+        return {"reachable": False, "status": None, "healthy": False, "latency_ms": None,
                 "category": "down", "down_kind": down_kind}
     return {"reachable": True, "status": best_status, "healthy": best_cat in ("x402", "api"),
-            "category": best_cat, "down_kind": None}
+            "category": best_cat, "down_kind": None, "latency_ms": best_latency}

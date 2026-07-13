@@ -211,6 +211,23 @@ def test_thin_evidence_cannot_be_safe():
     assert v.verdict != SAFE
 
 
+# ------------------------------------------ rolling uptime from history (slice 4)
+def test_flapping_uptime_caps_below_safe():
+    """A proven agent whose endpoint only serves 60% of the time over history is
+    unreliable — the rolling-uptime signal caps it below SAFE even on a lucky probe."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep),
+                    history={ep: {"uptime": 0.60, "p95_latency_ms": 200, "samples": 20}})
+    assert v.verdict != SAFE, f"flapping endpoint reached {v.verdict} ({v.score})"
+
+
+def test_solid_uptime_stays_safe():
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep),
+                    history={ep: {"uptime": 0.99, "p95_latency_ms": 200, "samples": 20}})
+    assert v.verdict == SAFE
+
+
 # ------------------------------------ Wilson sample-size-aware reputation (slice 3)
 def test_wilson_is_sample_size_aware():
     """The whole point: 2/2 perfect reviews must score FAR below 100/100 perfect
