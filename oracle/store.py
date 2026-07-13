@@ -90,6 +90,11 @@ def state_hash(agent_info: dict | None, services: list[dict], feedback: dict | N
         "endpoints": sorted(s.get("endpoint") for s in services if s.get("endpoint")),
         "fees": sorted(str(s.get("fee")) for s in services),
         "services": len(services),
+        # Tool NAMES + DESCRIPTIONS are part of the fingerprint: a silent edit to a
+        # tool description after approval (content rug-pull / tool poisoning) changes
+        # the hash and triggers re-verification, which is where the scanner catches it.
+        "manifest": sorted(f"{s.get('serviceName')}::{s.get('serviceDescription')}" for s in services),
+        "profile": (agent_info or {}).get("profileDescription"),
         "salesCount": (agent_info or {}).get("salesCount"),
         "securityRate": (agent_info or {}).get("securityRate"),
         "approvalStatus": (agent_info or {}).get("approvalStatus"),

@@ -8,6 +8,7 @@ records what it saw and flags when the agent has CHANGED since we last looked.
 from __future__ import annotations
 
 from . import store, settlement as _settlement
+from .content import scan_injection, gather_texts
 from .data import (fetch_agent, probe_endpoints, scan_malicious, fetch_feedback,
                    fetch_identity)
 from .engine import score_agent, Verdict
@@ -19,6 +20,7 @@ def assess(agent_id: str, *, persist: bool = True) -> Verdict:
     malicious = scan_malicious(services)
     feedback = fetch_feedback(agent_id)
     identity = fetch_identity(agent_id, info, services)
+    content = scan_injection(gather_texts(info, services))
     owner = [str(info.get("ownerAddress") or "").lower(),
              str(info.get("agentWalletAddress") or "").lower()]
     hist = store.uptime(agent_id) if persist else None
@@ -30,7 +32,7 @@ def assess(agent_id: str, *, persist: bool = True) -> Verdict:
 
     v = score_agent(info, services, probes, agent_id=agent_id,
                     malicious_hosts=malicious, feedback=feedback, owner_addrs=owner,
-                    history=hist, identity=identity, settlement=settle)
+                    history=hist, identity=identity, settlement=settle, content=content)
 
     if persist:
         sh = store.state_hash(info, services, feedback)

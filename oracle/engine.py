@@ -79,7 +79,7 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
                 agent_id: str | None = None, *, malicious_hosts: list[str] | None = None,
                 feedback: dict | None = None, owner_addrs: list[str] | None = None,
                 history: dict | None = None, identity: dict | None = None,
-                settlement: dict | None = None) -> Verdict:
+                settlement: dict | None = None, content: list[dict] | None = None) -> Verdict:
     """
     agent_info    : the `agentInfo` from `onchainos agent service-list` (may be None).
     services      : the `list` array (each has endpoint, fee, serviceType, ...).
@@ -272,6 +272,22 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         sig = _settlement_signal(settlement)
         if sig is not None:
             signals.append(sig)
+
+    # ---- Content vetting: tool-poisoning / prompt-injection in what it EXPOSES ----
+    # A listed, well-reviewed agent can hide instructions in a tool description that
+    # the calling model obeys and a human skims past. Reputation/liveness are blind
+    # to it; this is the #1 MCP-specific attack. A confirmed injection is a hard BLOCK.
+    if content:
+        crit = [f for f in content if f.get("severity") == "critical"]
+        warn = [f for f in content if f.get("severity") == "warn"]
+        if crit:
+            signals.append(Signal("tool_poisoning", -60,
+                f"Tool/description POISONED — hidden or injected instructions "
+                f"({crit[0].get('kind')}): {crit[0].get('evidence')}", "critical", cap=15))
+        elif warn:
+            signals.append(Signal("content", -10,
+                f"Suspicious content in listing ({warn[0].get('kind')}) — "
+                f"{warn[0].get('evidence')}", "warn", cap=60))
 
     # ---- A1: malicious endpoint (a LIVE endpoint can still be a drainer) ----
     if malicious_hosts:
