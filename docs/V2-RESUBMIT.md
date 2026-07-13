@@ -13,8 +13,12 @@ You built v1 in an hour. V2 turns it from "a signed verdict" into **a trust syst
 | Star-average reputation | **Wilson lower-bound** — sample-size-aware; catches mixed-review agents volume alone waves through, without punishing honest new agents |
 | Scored the agent | **Anti-impersonation** — checks the endpoint's `.well-known` domain-binding + x402 `payTo`, catching endpoint-borrowing and fund-diversion |
 | Single liveness probe | **Rolling uptime/latency** — a flapping endpoint (<95%) can't hold SAFE on one lucky probe |
+| Scored reputation only | **Tool-poisoning scanner** — reads what an agent EXPOSES; hidden/injected instructions → BLOCK (the MCP-review pain) |
+| Endpoint-only rug detection | **Content rug-pull** — a silent tool-description edit after approval flips the verdict on `/changes` |
+| Count-based wash gate | **On-chain distinct-payer** wash gate (built, default-off until keyed) |
+| API endpoints only | **/watchtower** live board + **demo_caller.py** (KYA gating real payments, signature-verified) |
 
-All verified: **81 tests green**, live discrimination stable (Otto/Explorer SAFE, #3820 BLOCK).
+All verified: **102 tests green**, clean live spread (Otto/Explorer SAFE · Scope/WhalePulse CAUTION · #3820 BLOCK).
 
 ---
 
@@ -41,20 +45,20 @@ onchainos agent activate --agent-id 5290
 ```
 ⚠️ `activate` resubmits to the ≤24h review — do it with buffer before Jul 17. If the current review already passes, you may not need to touch the listing at all.
 
-## 3. Demo (≤90s) — now shows DEPTH, hero = the re-verify flip
+## 3. Demo (≤90s) — hero = KYA gating a real payment + the rug-pull catch
 
-Record backward from the flip:
+Every beat below is a REAL script/endpoint (no mocked verdicts). Record backward from the caller.
 
 | # | Shot | Say |
 |---|------|-----|
-| 1 — cold open | KYA wordmark | "Agents on OKX.AI hire and pay each other blind. Everyone vets tokens — nobody vets the agents." |
-| 2 — SAFE | `/verify?agentId=2118` → SAFE, signed | "Otto — 188 settled sales, all endpoints serving, x402 valid. Signed SAFE." |
-| 3 — WOLF | `/passport?agentId=3820` → red slashed eye | "Sentiment Oracle — listed and online, but 0 settled sales and broken responses. WOLF. Turned away." |
-| 4 — **HERO: trust decays** | `/verify?agentId=3820` twice, then `/changes` | "Call it again — `revalidated: true`. KYA remembers. When an agent patches a dead endpoint, KYA re-verifies and records the flip — BLOCK → SAFE, on `/changes`. Trust is a timeline." |
-| 5 — security | the SSRF refusal (a fixture agent pointing at `169.254.169.254`) → BLOCK "internal infrastructure" | "A hostile agent points its endpoint at cloud metadata. KYA refuses to even probe it — and blocks it. A trust oracle can't have an SSRF hole." |
+| 1 — cold open | the `/watchtower` board | "Agents on OKX.AI hire and pay each other blind. Everyone vets tokens — nobody vets the agents. KYA is the watchtower." |
+| 2 — **HERO: KYA in the loop** | `python scripts/demo_caller.py 2118 2023 3820` | "A buyer agent asks KYA before it pays. Signature verified. Otto: pay. Explorer: pay. Sentiment Oracle: **REFUSE — do not send funds.** Reputation gating a payment, not advice." |
+| 3 — the rug-pull | `python scripts/demo_poison.py` | "An agent approved clean, then silently poisons a tool description. KYA re-verifies, catches the injected instruction, flips **SAFE → BLOCK** on `/changes`. A point-in-time review can't do that." |
+| 4 — trust decays | `python scripts/demo_flip.py` | "And the other direction — a patched dead endpoint re-verifies **BLOCK → SAFE**. Trust is a timeline." |
+| 5 — the WOLF | `/passport?agentId=3820` | "Every verdict is a signed passport. This one's a WOLF." |
 | 6 — close | the eye | "KYA. Know Your Agent." |
 
-*(Drop shot 5 or 6 if over 90s. The `bash scripts/demo.sh` CLI fallback still works for beats 2-3.)*
+*(Drop shot 4 or 5 if over 90s. `demo_caller` + `demo_poison` are the two that land the whole story.)*
 
 ## 4. X post (#OKXAI) — V2
 

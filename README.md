@@ -1,173 +1,104 @@
-# The Oracle
+# KYA — Know Your Agent 👁️
 
-**A trust oracle for the agent economy.** Before your agent pays a counterparty, ask The Oracle whether that counterparty is worth trusting — and get back a signed `SAFE` / `CAUTION` / `BLOCK` verdict.
+**The trust layer for the agent economy.** On OKX.AI, agents hire and pay each other blind. Everyone vets tokens and wallets; **nobody vets the agents themselves.** Before your agent pays or hires a counterparty, call KYA and get back a signed `SAFE` / `CAUTION` / `BLOCK` verdict on that counterparty — and refuse to transact when it says BLOCK.
 
-> Working name. Final name TBD.
+**Live:** https://kya-production-f846.up.railway.app · **ASP:** OKX.AI Agent #5290 · **Verdicts are Ed25519-signed.**
+
+```bash
+curl "https://kya-production-f846.up.railway.app/verify?agentId=2118"   # Otto AI -> SAFE, signed
+```
 
 ---
 
-## The problem
+## The problem (why this is necessary)
 
-OKX.AI is a marketplace where autonomous agents hire other agents. An Agent Service Provider (ASP) lists a service, and any other agent can call and pay it — often over x402, often unattended. But the agent doing the hiring is transacting **blind**. It sees a name, a star rating, maybe a fee. It has no way to know:
+Connecting an AI agent or MCP server is running someone else's code with a wallet and your tools. Today you either trust it blind, or you do what a security team does — a slow, manual review that is obsolete the moment the counterparty ships an update. There is no `npm audit` for agents. KYA is that missing primitive: a callable, signed, continuously re-checked verdict on any agent, built from the attack classes that actually happen in this market.
 
-- Is this ASP's endpoint actually alive, or listed-but-dead?
-- Has anyone *ever* completed a paid transaction with it, or is it a 5-star listing with zero sales?
-- Is this even a provider, or a buyer/test identity that can't deliver anything?
+A star rating is a claim. KYA checks the receipts.
 
-Star ratings don't answer these. A rating is a claim; The Oracle checks the receipts.
+## What KYA checks — the threat model
 
-## What it does
+KYA covers both halves of the problem: an agent's **reputation and endpoint**, and the **content it exposes**. Each maps to a documented agent/MCP attack class.
 
-The Oracle is itself an ASP. Another agent calls it with a target `agentId` and gets back a verdict on whether transacting with that agent is safe. It reasons over the target's **live OKX marketplace record**, **probes its endpoints in real time**, and runs **anomaly detection** across the two — then returns a gated, signed verdict.
-
-The white space: the token/wallet-safety corner of OKX.AI is already contested. **Nobody vets the agents/ASPs themselves.** That's what this fills — and in doing so it makes OKX's own marketplace safer to transact in.
-
-## How the verdict works
-
-### SAFE must be earned
-
-Every *listed* ASP has already passed OKX review, is marked online, and has a live endpoint. That is table stakes — not a reason to trust it with money. So the engine is **gated, not additive**:
-
-| Condition | Effect |
+| Attack class | KYA's check |
 |---|---|
-| Dead endpoint / inactive / test account / not an ASP | Score **capped low → BLOCK** |
-| Live but **0 completed sales** (unproven) | Score **capped at 64 → CAUTION** |
-| Real, earned track record + clean signals | Can reach **SAFE (≥70)** |
+| **Rug pull** (approved clean, turns malicious later) | Persisted verdicts + **re-verification on change**; a flip is recorded on `/changes` |
+| **Tool poisoning** (hidden instructions in a tool description) | Content scanner: injected instructions, secret-exfil, zero-width/bidi unicode → BLOCK |
+| **Fake / wash-traded reputation** | Sample-size-aware **Wilson** reputation + on-chain **distinct-payer** wash gate (X Layer settlements) |
+| **Impersonation / endpoint-borrowing** | `.well-known` domain-binding + x402 `payTo` cross-check |
+| **Dead / hijacked / parked endpoint** | Behaviour-aware liveness probe (POST+GET; x402/api = serving, off-host redirect = hijacked) |
+| **Malicious / drainer endpoint** | OKX phishing/blacklist host scan |
+| **Reviewer rings / self-review** | Reviewer-wallet integrity audit |
+| **KYA attacking itself** (SSRF) | The prober refuses internal/loopback/cloud-metadata targets |
 
-Verdict bands: **SAFE** ≥ 70 · **CAUTION** 45–69 · **BLOCK** < 45.
+## SAFE must be earned
 
-Scoring starts at a neutral 50, applies additive signal deltas, then clamps to the **lowest cap** any signal imposed. A single hard failure overrides a pile of good signals — you cannot buy back a dead endpoint with a nice star rating.
+Every *listed* ASP already passed OKX review, is online, and has a live endpoint — that is table stakes, not trust. So the engine is **gated, not additive**: it starts neutral, adds signal deltas, then clamps to the **lowest cap** any signal imposed. One hard failure overrides a pile of good signals — you cannot buy back a dead endpoint or a poisoned tool with a nice rating.
 
-### Three signal families
+Bands: **SAFE** ≥ 70 · **CAUTION** 45–69 · **BLOCK** < 45. Every verdict carries a **confidence** (thin evidence itself caps at CAUTION).
 
-1. **Reputation (the earned signal that gates SAFE)** — settled **volume**, not a raw sales *count*. `salesCount × median fee` is the proxy: a raw count is the cheapest thing to fake (wash-buy a 0.001-USDT service 10× for ~$0.01), so SAFE requires either real settled volume *or* a sales count high enough to be costly to wash. Cheap, low-count sales cap at CAUTION.
-2. **Liveness (behaviour-aware, not just "responds")** — every endpoint is probed with **both POST and GET** and classified by how it behaves: a `402` payment challenge or a JSON API response = *serving*; a 2xx **HTML** landing page = *parked*; `5xx` = *broken*; an off-host redirect = *hijacked/parked*; connection-refused = *down*. This is what stops a parked domain scoring as "live" and stops a POST-only A2MCP endpoint being mistaken for dead. Timeouts are treated as *unverified* (softer) rather than proven-dead.
-3. **Anomaly detection** — the cross-checks a raw rating won't surface: high rating with zero sales ("reputation not earned through real usage"), **listed-online-but-endpoint-actually-down**, test/placeholder account names (only when also unproven), empty profile, and off-market fees.
+### It discriminates on real agents (no rubber-stamping)
 
-Each verdict carries a **confidence** score (0–100) reflecting how much evidence was available — and thin evidence itself caps the verdict at CAUTION. Verdicts are **Ed25519-signed and time-bounded**: the service signs `sha256(canonical verdict) + issued_at + ttl` with a key it controls and publishes the public key at `/pubkey`, so any consumer can verify a verdict offline and reject an expired one — no shared secret.
+| Agent | ID | Verdict | Why |
+|---|---|---|---|
+| Otto AI | #2118 | **SAFE** | 216 settled sales, all endpoints serving, x402 valid |
+| Onchain Data Explorer | #2023 | **SAFE** | 775 sales, live, clean |
+| Scope | #3733 | **CAUTION** | Barely proven — one sale |
+| WhalePulse | #3369 | **CAUTION** | Live but unproven — nobody has used it |
+| Sentiment Oracle | #3820 | **BLOCK** | Listed & online, but endpoints broken and zero settled sales |
 
-### Verified against live agents
+## Trust is cryptographic, and a timeline
 
-The engine discriminates correctly across real OKX.AI agents — it does not rubber-stamp:
+- **Signed:** each verdict signs `sha256(canonical verdict) + issued_at + ttl` with a key KYA controls; the public key is at `/pubkey`. A consumer pins it once and verifies every verdict **offline** — a rogue oracle can't ship its own key and self-sign SAFE.
+- **A timeline, not a snapshot:** a verdict is only trustworthy inside its TTL. KYA persists every verdict, re-verifies when an agent changes, and records the transition — so a patched dead endpoint or a silently poisoned tool description **flips** and shows up on `/changes`. A point-in-time review can't do that.
 
-| Agent | ID | Sales | Verdict | Score | Why |
-|---|---|---|---|---|---|
-| Onchain Data Explorer | #2023 | 656 | **SAFE** | 100 | Strong earned track record, live, clean |
-| Otto AI | #2118 | 169 | **SAFE** | 100 | Proven track record + live endpoint |
-| Scope | #3733 | 1 | **CAUTION** | 69 | Barely proven — one sale caps it |
-| WhalePulse | #3369 | 0 | **CAUTION** | 64 | Live but unproven — nobody has used it |
-| Sentiment Oracle | #3820 | 0 | **BLOCK** | 44 | Its endpoints actually return 502 — listed-online but down |
-| (non-ASP identity) | #2971 | — | **BLOCK** | 20 | No registered ASP services |
-| (non-ASP identity) | #1771 | — | **BLOCK** | 20 | Not a provider you can transact with |
-
-That Sentiment Oracle row is the point: a raw star-rating would never tell you the endpoint is dead. The behaviour-aware probe caught it.
-
-Reproduce it:
+## See it
 
 ```bash
-python scripts/smoke.py 2118 2023 3733 3369 3820 2971 1771
+python scripts/demo_caller.py 2118 2023 3820   # KYA gating real payments: pay / pay / REFUSE
+python scripts/demo_flip.py                    # patched dead endpoint -> BLOCK->SAFE re-verify
+python scripts/demo_poison.py                  # silent tool-poisoning -> SAFE->BLOCK rug-pull
+open  https://kya-production-f846.up.railway.app/watchtower               # live verdict board + crossings
+open  https://kya-production-f846.up.railway.app/passport?agentId=3820    # the WOLF passport
 ```
+
+`demo_caller.py` is the reference **integration**: a buyer agent that fetches KYA's verdict, verifies the signature against a pinned key, and refuses the payment on BLOCK. That is how you use KYA.
 
 ## Architecture
 
-Python, deliberately split so the trust logic is unit-testable in isolation:
+Python, split so the trust logic stays pure and unit-testable:
 
 ```
 oracle/
-  engine.py   Pure gated scoring. No I/O. Input: marketplace record + probe
-              results. Output: a Verdict dataclass + content digest. The trust logic.
-  data.py     I/O layer. Shells `onchainos agent service-list` for the target's
-              marketplace record + name resolution, then behaviour-probes its
-              endpoints (httpx, thread pool) for liveness.
-  signing.py  Ed25519 keypair mgmt; signs the verdict digest + freshness window,
-              publishes the public key, verifies envelopes (incl. expiry).
-app.py        FastAPI server: GET /verify, /pubkey, /health. The A2MCP endpoint.
-cli.py        Local harness: fetch -> probe -> score -> print JSON. No server needed.
-scripts/
-  smoke.py    Runs the engine across real agents; proves discrimination.
-  demo.sh     The 90-second demo narrative (SAFE / CAUTION / BLOCK on live agents).
-tests/        31+ tests incl. the wash-trade and dead-endpoint security regressions.
+  engine.py      Pure gated scoring. No I/O. dicts in -> signed Verdict out. The trust logic.
+  data.py        I/O: onchainos marketplace record + SSRF-guarded endpoint probing.
+  content.py     Tool-poisoning / prompt-injection scanner over exposed text.
+  settlement.py  On-chain distinct-payer wash gate (OKLink X Layer). Default-off until keyed.
+  signing.py     Ed25519 sign/verify of the verdict digest + freshness window.
+  store.py       SQLite: verdict history, re-verify-on-change transitions, uptime.
+  watchtower.py  The live verdict board (KYA passport identity).
+app.py           FastAPI: /verify /pubkey /health /passport /seal /history /changes /watchtower
+scripts/         demo_caller, demo_flip, demo_poison, smoke, demo.sh
+tests/           102 tests incl. wash-trade, dead-endpoint, SSRF, and tool-poisoning regressions.
 ```
 
-`engine.py` has **no network or subprocess dependency** — you hand it dicts, it hands you a `Verdict`. That keeps the part that decides "should money move" small, pure, and testable. `data.py` owns everything that can fail on the network. `app.py` wraps them behind `GET /verify` and attaches the signature.
-
-**Deploy target:** Railway (public HTTPS) — see [DEPLOY.md](DEPLOY.md). That URL becomes permanent on-chain when the ASP registers, so it ships behind a stable host from day one. Free A2MCP endpoint first; paid x402 tier later.
-
-## API sketch
-
-```
-GET /verify?agentId=2118
-```
-
-Returns the `Verdict` shape produced by `engine.py`:
-
-```json
-{
-  "agent_id": "2118",
-  "name": "Otto AI",
-  "verdict": "SAFE",
-  "score": 100,
-  "confidence": 100,
-  "reasons": [
-    "✅ 169 completed sales — strong, earned track record.",
-    "✅ All 1 service endpoint(s) responding.",
-    "✅ Passed OKX listing review."
-  ],
-  "signals": [
-    { "key": "sales", "delta": 26, "reason": "169 completed sales — strong, earned track record.", "severity": "good", "cap": null },
-    { "key": "liveness", "delta": 18, "reason": "All 1 service endpoint(s) responding.", "severity": "good", "cap": null }
-  ],
-  "evidence": {
-    "isAsp": true,
-    "sales": 169,
-    "securityRate": 5.0,
-    "approvalStatus": 4,
-    "onlineStatus": 1,
-    "serviceCount": 1,
-    "endpoints": { "https://…": "live (x402 paywall)" },
-    "cappedAt": null
-  },
-  "digest": "3f9c…",
-  "signature": {
-    "alg": "ed25519",
-    "pubkey": "e54e0984…",
-    "signature": "…",
-    "signed_at": 1783899860,
-    "ttl": 300,
-    "expires_at": 1783900160
-  }
-}
-```
-
-`reasons` is the human-readable "why" (criticals first). `signals` is the full scored breakdown. `evidence` is the raw record the verdict was built from. `digest` is the sha256 of the canonical verdict; `signature` is the Ed25519 envelope over it — verify with the key at `GET /pubkey`, and reject if `now > expires_at`. Resolve by name with `GET /verify?name=Otto%20AI` (exact match only — it never guesses).
+`engine.py` has no network or subprocess dependency — the part that decides "should money move" is small, pure, and adversarially tested (two red-team passes; every fix locked with a regression).
 
 ## Quickstart
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-# Requires the `onchainos` CLI on PATH (or set ONCHAINOS_BIN).
-python cli.py 2118          # Otto AI      -> SAFE
-python cli.py 3733          # Scope        -> CAUTION (1 sale)
-python cli.py 2971          # non-ASP      -> BLOCK
-
-# Run the server, then hit it:
-uvicorn app:app --port 8000
-#   curl "localhost:8000/verify?agentId=2118"
-
-pytest -q                   # 31+ tests
-bash scripts/demo.sh        # the 90-second demo
+python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+python cli.py 2118           # Otto AI -> SAFE   (needs the `onchainos` CLI on PATH)
+uvicorn app:app --port 8000  # then: curl localhost:8000/verify?agentId=2118
+pytest -q                    # 102 tests
 ```
 
-Environment knobs in [`.env.example`](.env.example): `ONCHAINOS_BIN`, `PROBE_TIMEOUT`, `CACHE_TTL`, `ORACLE_SIGNING_KEY`, `ORACLE_VERDICT_TTL`.
+Env knobs (`.env.example`): `ORACLE_SIGNING_KEY` (stable signatures across redeploys), `KYA_DB_PATH` (persist history on a volume), `PROBE_TIMEOUT`, `CACHE_TTL`, `KYA_SETTLEMENT` + `OKLINK_API_KEY` (enable the on-chain wash gate).
 
-## Roadmap
+## Status
 
-1. **Ship the free endpoint** — register `GET /verify` as a free A2MCP tier on OKX.AI. Get listed fast. *(server + signing + tests done; deploy + registration are the next gates — see DEPLOY.md.)*
-2. **Broaden the signals** — dispute history, delivery latency, fee-drift over time, per-service scoring (score the exact service the caller will use), cross-agent reference checks.
-3. **Paid x402 tier** — a metered, higher-assurance verification tier once the free endpoint has traction.
+Live and deployed on Railway; ASP #5290 registered on OKX.AI (listing review in progress). The on-chain distinct-payer wash gate is built and tested but **default-off** pending an OKLink key + a one-tx check that the settlement `from` is the buyer, not a facilitator.
 
 ## Why it matters beyond the hackathon
 
-Counterparty and signing safety is the same problem a hardware wallet solves for humans, one layer up: *should this transaction happen, with this counterparty, right now?* The agent economy needs that check to be a callable service — which is directly relevant to **Ledger**.
+"Should this transaction happen, with this counterparty, right now?" is the question a hardware wallet answers for humans — one layer up, for agents. The agent economy needs that check to be a callable, signed, always-fresh service. That is KYA.
