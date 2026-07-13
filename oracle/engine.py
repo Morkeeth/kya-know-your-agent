@@ -208,6 +208,32 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         signals.append(Signal("security_rating", delta,
             f"Security rating {sec_rate:.2f}/5.", "good" if delta >= 0 else "warn"))
 
+    # ---- Reputation by SAMPLE-SIZE-AWARE positive fraction (Wilson lower bound) ----
+    # A star AVERAGE hides its sample size: 2 perfect reviews should never look as
+    # trustworthy as 100 consistent ones, yet a mean can't tell them apart. The
+    # Wilson score lower bound is pulled toward zero when evidence is thin, so a
+    # thinly- or mixed-reviewed agent CANNOT clear SAFE on reviews alone — "SAFE
+    # must be EARNED" as a property of the estimator, not a hand-tuned delta.
+    rc = _review_counts(feedback)
+    if rc is not None:
+        pos, n = rc
+        wlb = wilson_lower_bound(pos, n)
+        p = pos / n
+        # REWARD only deep, consistent positives (the bound clears 0.55 only with
+        # real volume behind it); thin-but-positive reviews add ~0 and let the
+        # settled-volume gate decide — they must not PENALISE an honest new agent.
+        delta = round(max(0.0, wlb - 0.55) * 26)          # 0 .. ~+12
+        # CAP only on a genuine NEGATIVE proportion (real bad reviews with enough
+        # sample to mean it), never on small-n uncertainty. This is the signal a
+        # volume-only gate misses: 100 reviews that are 40% negative is risky even
+        # with sales behind it.
+        cap = 62 if (n >= 5 and p < 0.80) else None
+        sev = "warn" if (cap is not None) else "good"
+        detail = (f"{p:.0%} positive — mixed, capped below SAFE" if cap is not None
+                  else f"Wilson-adjusted trust {wlb:.2f}")
+        signals.append(Signal("reputation", delta,
+            f"{pos}/{n} positive reviews — {detail}.", sev, cap=cap))
+
     # ---- A1: malicious endpoint (a LIVE endpoint can still be a drainer) ----
     if malicious_hosts:
         signals.append(Signal("malicious", -60,
@@ -329,6 +355,60 @@ def _to_int(x: Any) -> int | None:
     """Tolerant int: handles 4, "4", "4.0", 4.0 — anything the CLI might emit."""
     f = _to_float(x)
     return int(f) if f is not None else None
+
+
+def wilson_lower_bound(pos: int, n: int, z: float = 1.96) -> float:
+    """Lower bound of the Wilson score interval for a positive-rating fraction.
+
+    Sample-size aware: with few reviews the uncertainty term dominates and the
+    bound is pulled toward 0, so a 2/2 agent scores far below a 100/100 one even
+    though both have a 100% average. Returns 0.0 for n <= 0. Range [0, 1].
+    """
+    if n <= 0:
+        return 0.0
+    p = pos / n
+    z2 = z * z
+    denom = 1.0 + z2 / n
+    centre = p + z2 / (2 * n)
+    margin = z * (((p * (1 - p)) + z2 / (4 * n)) / n) ** 0.5
+    return max(0.0, (centre - margin) / denom)
+
+
+def _review_counts(feedback: dict | None) -> tuple[int, int] | None:
+    """Extract (positive, total) review counts from a feedback payload, tolerating
+    a few shapes so the Wilson term works regardless of exactly how OKX returns
+    reviews: explicit {positive,total}, a star map {'5':x,'4':y,...} (4-5 = positive),
+    or a good/bad split. Returns None when no rating counts are present (e.g. the
+    A2 reviewer-integrity payload that only carries reviewer addresses)."""
+    if not feedback:
+        return None
+    pos, tot = feedback.get("positive"), feedback.get("total")
+    if pos is not None and tot:
+        pos, tot = _to_int(pos), _to_int(tot)
+        if pos is not None and tot:
+            return max(0, pos), tot
+    dist = feedback.get("distribution")
+    if isinstance(dist, dict) and dist:
+        stars: dict[int, int] = {}
+        good = bad = None
+        for k, val in dist.items():
+            digits = "".join(ch for ch in str(k) if ch.isdigit())
+            c = _to_int(val) or 0
+            if digits:
+                stars[int(digits)] = stars.get(int(digits), 0) + c
+            elif str(k).lower() in ("good", "positive", "up"):
+                good = (good or 0) + c
+            elif str(k).lower() in ("bad", "negative", "down"):
+                bad = (bad or 0) + c
+        if stars:
+            n = sum(stars.values())
+            if n > 0:
+                return sum(c for s, c in stars.items() if s >= 4), n
+        if good is not None or bad is not None:
+            n = (good or 0) + (bad or 0)
+            if n > 0:
+                return (good or 0), n
+    return None
 
 
 def _median(xs: list[float]) -> float | None:

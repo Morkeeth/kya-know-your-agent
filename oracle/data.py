@@ -117,11 +117,29 @@ def fetch_feedback(agent_id: str) -> dict:
     except RuntimeError:
         return {}
     lst = d.get("list") or []
-    return {
+    # Per-review ratings power the Wilson sample-size-aware reputation term. OKX's
+    # exact field name isn't pinned, so read the first rating-ish key we find and
+    # count 4-5 stars as positive; absent ratings just leave (positive,total) unset
+    # and the engine falls back to securityRate. TODO(live): confirm the field name.
+    def _rating(r: dict):
+        for k in ("star", "stars", "rating", "score", "rate"):
+            v = r.get(k)
+            if v is not None:
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    return None
+        return None
+    ratings = [x for x in (_rating(r) for r in lst) if x is not None]
+    out = {
         "distribution": d.get("distribution") or {},
         "reviewers": [str(r.get("reviewerAddress") or "").lower() for r in lst if r.get("reviewerAddress")],
         "count": len(lst),
     }
+    if ratings:
+        out["total"] = len(ratings)
+        out["positive"] = sum(1 for x in ratings if x >= 4)
+    return out
 
 
 _UA = "Mozilla/5.0 (compatible; OracleTrustProbe/0.2; +https://okx.ai)"

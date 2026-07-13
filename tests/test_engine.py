@@ -8,7 +8,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from oracle.engine import score_agent, SAFE, CAUTION, BLOCK  # noqa: E402
+from oracle.engine import (  # noqa: E402
+    score_agent, wilson_lower_bound, _review_counts, SAFE, CAUTION, BLOCK,
+)
 
 
 def _healthy(url): return {url: {"reachable": True, "status": 402, "healthy": True, "category": "x402"}}
@@ -193,6 +195,61 @@ def test_thin_evidence_cannot_be_safe():
     v = score_agent({"agentId": "5", "name": "Sparse", "salesCount": None},
                     [], {})
     assert v.verdict != SAFE
+
+
+# ------------------------------------ Wilson sample-size-aware reputation (slice 3)
+def test_wilson_is_sample_size_aware():
+    """The whole point: 2/2 perfect reviews must score FAR below 100/100 perfect
+    ones, even though both are a 100% average."""
+    thin = wilson_lower_bound(2, 2)
+    thick = wilson_lower_bound(100, 100)
+    assert 0.0 < thin < 0.45, thin          # pulled toward zero by uncertainty
+    assert thick > 0.95, thick              # earned
+    assert thick > thin
+
+
+def test_wilson_zero_n_is_zero():
+    assert wilson_lower_bound(0, 0) == 0.0
+    assert wilson_lower_bound(5, 0) == 0.0
+
+
+def test_wilson_mixed_reviews_below_clean():
+    assert wilson_lower_bound(80, 100) < wilson_lower_bound(95, 100)
+
+
+def test_review_counts_parses_star_distribution():
+    assert _review_counts({"distribution": {"5": 90, "4": 5, "1": 5}}) == (95, 100)
+    assert _review_counts({"positive": 8, "total": 10}) == (8, 10)
+    assert _review_counts({"distribution": {"good": 7, "bad": 3}}) == (7, 10)
+    # A2-only payload (reviewer addresses, no ratings) yields no counts.
+    assert _review_counts({"reviewers": ["0x1"], "count": 1}) is None
+    assert _review_counts({}) is None
+
+
+def test_mixed_reviews_cap_an_otherwise_safe_agent():
+    """The value the raw volume gate MISSES: an agent proven on sales but carrying
+    a real proportion of negative reviews (60/100) is risky — capped below SAFE."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep),
+                    feedback={"positive": 60, "total": 100})
+    assert v.verdict != SAFE, f"mixed reviews reached {v.verdict} ({v.score})"
+
+
+def test_thin_positive_reviews_do_not_penalise_a_proven_agent():
+    """Few but genuine 5-star reviews must NOT drag a volume-proven agent down —
+    small-sample uncertainty is not a negative signal (this was the Otto regression)."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep),
+                    feedback={"positive": 2, "total": 2})
+    assert v.verdict == SAFE
+
+
+def test_deep_consistent_reviews_stay_safe():
+    """95/100 positive reviews is earned trust — the Wilson term must NOT block it."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep),
+                    feedback={"positive": 95, "total": 100})
+    assert v.verdict == SAFE
 
 
 # ------------------------------------------------------------------- integrity
