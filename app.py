@@ -15,8 +15,9 @@ import time
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
-from oracle import fetch_agent, probe_endpoints, score_agent, AgentNotFound
+from oracle import AgentNotFound
 from oracle.data import resolve_agent_id
+from oracle.verify import assess
 from oracle.persona import pronounce, TAGLINE
 from oracle.seal import render_stamp, render_passport
 from oracle.signing import Signer
@@ -38,14 +39,13 @@ def _date(ts: int) -> str:
 
 
 def _verdict_for(agent_id: str):
-    """Fetch + score + sign an agent. Returns (verdict, signature_envelope)."""
+    """Assess + sign an agent. Returns (verdict, signature_envelope)."""
     try:
-        info, services = fetch_agent(agent_id)
+        v = assess(agent_id)
     except AgentNotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=f"upstream: {e}")
-    v = score_agent(info, services, probe_endpoints(services), agent_id=agent_id)
     return v, _signer.sign_digest(v.digest)
 
 

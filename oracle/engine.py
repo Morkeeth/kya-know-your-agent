@@ -76,11 +76,15 @@ def _live_label(probe: dict) -> str:
 
 
 def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str, dict],
-                agent_id: str | None = None) -> Verdict:
+                agent_id: str | None = None, *, malicious_hosts: list[str] | None = None,
+                feedback: dict | None = None, owner_addrs: list[str] | None = None) -> Verdict:
     """
-    agent_info : the `agentInfo` object from `onchainos agent service-list` (may be None).
-    services   : the `list` array (each has endpoint, fee, serviceType, ...).
-    probes     : { endpoint_url: {"reachable": bool, "status": int|None} }.
+    agent_info    : the `agentInfo` from `onchainos agent service-list` (may be None).
+    services      : the `list` array (each has endpoint, fee, serviceType, ...).
+    probes        : { endpoint_url: {"reachable": bool, "healthy": bool, ...} }.
+    malicious_hosts : endpoint hosts flagged by OKX's phishing/blacklist scan (A1).
+    feedback      : {reviewers:[addr], distribution, count} for reviewer audit (A2).
+    owner_addrs   : the agent's own owner/wallet addresses (to catch self-review).
     """
     # ---- No ASP record at all (User/buyer identity, or unregistered) ----
     if not agent_info:
@@ -203,6 +207,26 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         delta = round((sec_rate - 3.0) * 6)
         signals.append(Signal("security_rating", delta,
             f"Security rating {sec_rate:.2f}/5.", "good" if delta >= 0 else "warn"))
+
+    # ---- A1: malicious endpoint (a LIVE endpoint can still be a drainer) ----
+    if malicious_hosts:
+        signals.append(Signal("malicious", -60,
+            f"Endpoint flagged MALICIOUS by OKX security scan (phishing/drainer): {malicious_hosts[0]}.",
+            "critical", cap=15))
+
+    # ---- A2: audit reputation by WHO reviewed, not the aggregate star average ----
+    if feedback:
+        reviewers = feedback.get("reviewers") or []
+        owners = {a for a in (owner_addrs or []) if a}
+        if owners and any(r in owners for r in reviewers):
+            signals.append(Signal("self_review", -45,
+                "Self-reviewed — a review comes from the agent's own wallet. Reputation is self-dealt.",
+                "critical", cap=25))
+        distinct = len(set(reviewers))
+        if len(reviewers) >= 3 and distinct <= 2:
+            signals.append(Signal("review_ring", -12,
+                f"All {len(reviewers)} reviews come from only {distinct} address(es) — possible review ring.",
+                "warn", cap=66))
 
     # ---- Anomaly detection (what a raw star-rating won't tell you) ----
     if sec_rate is not None and sec_rate >= 4.5 and sales == 0:

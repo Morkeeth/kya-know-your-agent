@@ -83,6 +83,46 @@ def resolve_agent_id(name: str) -> str | None:
     return _pick_exact(items, name)
 
 
+def scan_malicious(services: list[dict]) -> list[str]:
+    """Run OKX's phishing/blacklist scan on each distinct endpoint host.
+    Returns the list of hosts flagged malicious (empty = clean). A live endpoint
+    can be malicious — liveness alone never catches that."""
+    seen, flagged = {}, []
+    for s in services:
+        ep = s.get("endpoint")
+        if not ep:
+            continue
+        try:
+            host = httpx.URL(ep).host
+        except Exception:  # noqa: BLE001
+            continue
+        if host in seen:
+            continue
+        seen[host] = ep
+        try:
+            data = _run_onchainos(["security", "dapp-scan", "--domain", ep]).get("data") or {}
+        except RuntimeError:
+            continue  # scan unavailable -> don't fail the whole verdict
+        if data.get("isMalicious"):
+            flagged.append(host)
+    return flagged
+
+
+def fetch_feedback(agent_id: str) -> dict:
+    """Per-review reviewer addresses + rating distribution — so reputation can be
+    audited by WHO reviewed, not just an aggregate star average."""
+    try:
+        d = _run_onchainos(["agent", "feedback-list", "--agent-id", str(agent_id)]).get("data") or {}
+    except RuntimeError:
+        return {}
+    lst = d.get("list") or []
+    return {
+        "distribution": d.get("distribution") or {},
+        "reviewers": [str(r.get("reviewerAddress") or "").lower() for r in lst if r.get("reviewerAddress")],
+        "count": len(lst),
+    }
+
+
 _UA = "Mozilla/5.0 (compatible; OracleTrustProbe/0.2; +https://okx.ai)"
 
 

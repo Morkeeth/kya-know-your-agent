@@ -89,6 +89,44 @@ def test_real_priced_volume_is_safe():
     assert v.verdict == SAFE
 
 
+# ----------------------------------------------------- A1: malicious endpoint
+def test_malicious_endpoint_forces_block_even_if_proven():
+    """A LIVE endpoint flagged by the phishing/blacklist scan must BLOCK, even on a
+    500-sale, all-serving agent — liveness alone never catches a drainer."""
+    ep = "https://drainer.example.com/api"
+    v = score_agent(_asp(salesCount=500), _svc(ep), _healthy(ep),
+                    malicious_hosts=["drainer.example.com"])
+    assert v.verdict == BLOCK
+
+
+# ------------------------------------------------ A2: reviewer-integrity audit
+def test_self_review_is_not_safe():
+    """A review coming from the agent's own wallet = self-dealt reputation -> not SAFE."""
+    ep = "https://svc.example.com/api"
+    owner = "0xabc"
+    v = score_agent(_asp(salesCount=200, ownerAddress=owner), _svc(ep), _healthy(ep),
+                    feedback={"reviewers": [owner, "0xother"], "count": 2},
+                    owner_addrs=[owner])
+    assert v.verdict != SAFE
+
+
+def test_review_ring_caps_at_caution():
+    """Many reviews from only 1-2 addresses = a ring -> capped at CAUTION."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep),
+                    feedback={"reviewers": ["0x1", "0x1", "0x1", "0x2"], "count": 4},
+                    owner_addrs=["0xowner"])
+    assert v.verdict == CAUTION
+
+
+def test_diverse_reviews_do_not_penalize():
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep),
+                    feedback={"reviewers": ["0x1", "0x2", "0x3", "0x4"], "count": 4},
+                    owner_addrs=["0xowner"])
+    assert v.verdict == SAFE
+
+
 # ------------------------------------------------------------------ dead -> BLOCK
 def test_dead_endpoint_is_block():
     ep = "https://svc.example.com/api"
