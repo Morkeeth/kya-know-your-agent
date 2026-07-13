@@ -119,6 +119,10 @@ def record(verdict, sh: str, issued_at: int | None = None, path: str | None = No
     issued_at = int(issued_at if issued_at is not None else time.time())
     prev = last_verdict(verdict.agent_id, path)
     changed = prev is not None and prev["state_hash"] != sh
+    # A transition fires on any VERDICT move, whether the cause is a config change
+    # (new services / sales) or a pure liveness flip (a patched dead endpoint —
+    # the exact 're-verify' case, which state_hash deliberately excludes).
+    verdict_moved = prev is not None and prev["verdict"] != verdict.verdict
     transition = None
     with _conn(path) as con:
         con.execute(
@@ -127,8 +131,9 @@ def record(verdict, sh: str, issued_at: int | None = None, path: str | None = No
             (verdict.agent_id, sh, verdict.verdict, verdict.score, verdict.confidence,
              verdict.digest, issued_at, json.dumps(verdict.to_dict())),
         )
-        if changed and prev["verdict"] != verdict.verdict:
-            reason = f"state changed; verdict {prev['verdict']} -> {verdict.verdict}"
+        if verdict_moved:
+            cause = "config changed" if changed else "liveness/endpoint changed"
+            reason = f"{cause}; verdict {prev['verdict']} -> {verdict.verdict}"
             con.execute(
                 "INSERT INTO transitions(agent_id,name,from_verdict,to_verdict,from_score,to_score,reason,at)"
                 " VALUES(?,?,?,?,?,?,?,?)",

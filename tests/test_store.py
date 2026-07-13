@@ -57,6 +57,16 @@ def test_state_change_records_transition(tmp_path):
     assert changes and changes[0]["from_verdict"] == "BLOCK" and changes[0]["to_verdict"] == "SAFE"
 
 
+def test_pure_liveness_flip_records_transition(tmp_path):
+    """A patched dead endpoint moves the verdict with the SAME marketplace state
+    hash — the transition must still fire (this is the demo-hero case)."""
+    db = _db(tmp_path)
+    store.record(_V("42", "BLOCK", 20), "same_hash", issued_at=1000, path=db)
+    r = store.record(_V("42", "SAFE", 80), "same_hash", issued_at=2000, path=db)
+    assert r["changed"] is False               # config didn't change...
+    assert r["transition"]["from"] == "BLOCK" and r["transition"]["to"] == "SAFE"  # ...but verdict did
+
+
 def test_same_state_is_not_a_change(tmp_path):
     db = _db(tmp_path)
     store.record(_V("2118", "SAFE", 100), "hashA", issued_at=1000, path=db)
