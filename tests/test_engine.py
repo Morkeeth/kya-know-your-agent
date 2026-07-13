@@ -105,6 +105,44 @@ def test_ssrf_blocked_endpoint_forces_block_even_if_proven():
     assert any(s["key"] == "ssrf" for s in v.signals)
 
 
+# ------------------------------------------ anti-impersonation identity (slice 6)
+def test_endpoint_borrowing_mismatch_forces_block():
+    """The endpoint's .well-known names a DIFFERENT agent — B borrowed A's live
+    endpoint to inherit its score. Caught -> BLOCK even with sales+liveness."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep),
+                    identity={"domain_binding": "mismatch", "payto": "absent"})
+    assert v.verdict == BLOCK
+    assert any(s["key"] == "domain_binding" for s in v.signals)
+
+
+def test_paytO_mismatch_forces_block():
+    """x402 routes payment to a wallet that isn't the agent's — fund diversion."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep),
+                    identity={"domain_binding": "absent", "payto": "mismatch"})
+    assert v.verdict == BLOCK
+
+
+def test_identity_match_flags_but_stays_safe():
+    """A verified domain-binding + payTo is a positive — agent stays SAFE, with flags."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep),
+                    identity={"domain_binding": "match", "payto": "match"})
+    assert v.verdict == SAFE
+    keys = {s["key"] for s in v.signals}
+    assert "domain_binding" in keys and "payto" in keys
+
+
+def test_identity_absent_is_neutral_no_regression():
+    """The common 2026 case: neither implemented. Must NOT change the verdict."""
+    ep = "https://svc.example.com/api"
+    base = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep))
+    withid = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep),
+                         identity={"domain_binding": "absent", "payto": "absent"})
+    assert base.verdict == withid.verdict == SAFE and base.score == withid.score
+
+
 # ----------------------------------------------------- A1: malicious endpoint
 def test_malicious_endpoint_forces_block_even_if_proven():
     """A LIVE endpoint flagged by the phishing/blacklist scan must BLOCK, even on a

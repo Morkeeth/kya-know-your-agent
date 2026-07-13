@@ -207,6 +207,85 @@ def guard_url(url: str) -> None:
             raise BlockedTarget(f"{host!r} resolves to non-public IP {ip_str}")
 
 
+def _registration_ids(reg: dict) -> set[str]:
+    """Pull the agentId(s) an ERC-8004 .well-known/agent-registration.json claims.
+    Tolerant of a few shapes: {registrations:[{agentId}]}, {agentId}, {agents:[...]}."""
+    ids: set[str] = set()
+
+    def _add(v):
+        if v is not None:
+            ids.add(str(v).strip().lstrip("#"))
+
+    if not isinstance(reg, dict):
+        return ids
+    _add(reg.get("agentId"))
+    for key in ("registrations", "agents"):
+        for item in (reg.get(key) or []):
+            if isinstance(item, dict):
+                _add(item.get("agentId"))
+    return {i for i in ids if i}
+
+
+def _x402_paytos(body: dict) -> set[str]:
+    """Pull the payTo address(es) from an x402 402 challenge. accepts[].payTo per
+    the exact-EVM spec; the facilitator can only settle to payTo, so it IS the
+    beneficiary. Lower-cased for comparison."""
+    outs: set[str] = set()
+    if not isinstance(body, dict):
+        return outs
+    for a in (body.get("accepts") or []):
+        if isinstance(a, dict) and a.get("payTo"):
+            outs.add(str(a["payTo"]).strip().lower())
+    if body.get("payTo"):
+        outs.add(str(body["payTo"]).strip().lower())
+    return {o for o in outs if o}
+
+
+def fetch_identity(agent_id: str, agent_info: dict | None, services: list[dict]) -> dict:
+    """Anti-impersonation checks on the PRIMARY endpoint (best-effort, guarded):
+
+      domain_binding — does {host}/.well-known/agent-registration.json name THIS
+                       agent? Catches endpoint-BORROWING: agent B listing agent A's
+                       live, well-reviewed endpoint to inherit its liveness score.
+      payto          — does the x402 402 challenge route payment to the agent's own
+                       registered wallet? Catches fund-DIVERSION.
+
+    Returns each as 'match' | 'mismatch' | 'absent'. Absent = NEUTRAL: in 2026 few
+    agents implement either, so only a positive CONTRADICTION is a trust signal."""
+    result = {"domain_binding": "absent", "payto": "absent"}
+    eps = [s.get("endpoint") for s in services if s.get("endpoint")]
+    if not eps:
+        return result
+    ep = eps[0]
+    try:
+        u = httpx.URL(ep)
+        wk = str(httpx.URL(scheme=u.scheme, host=u.host, port=u.port,
+                           path="/.well-known/agent-registration.json"))
+        guard_url(wk)
+        r = httpx.get(wk, timeout=_PROBE_TIMEOUT, follow_redirects=False,
+                      headers={"User-Agent": _UA})
+        if r.status_code == 200 and _is_json(r):
+            ids = _registration_ids(r.json())
+            if ids:
+                result["domain_binding"] = "match" if str(agent_id) in ids else "mismatch"
+    except (httpx.HTTPError, ValueError, KeyError):
+        pass
+
+    wallet = str((agent_info or {}).get("agentWalletAddress") or "").strip().lower()
+    if wallet:
+        try:
+            guard_url(ep)
+            r = httpx.post(ep, timeout=_PROBE_TIMEOUT, follow_redirects=False,
+                           headers={"User-Agent": _UA}, json={})
+            if r.status_code == 402 and _is_json(r):
+                pays = _x402_paytos(r.json())
+                if pays:
+                    result["payto"] = "match" if wallet in pays else "mismatch"
+        except (httpx.HTTPError, ValueError, KeyError, BlockedTarget):
+            pass
+    return result
+
+
 _UA = "Mozilla/5.0 (compatible; OracleTrustProbe/0.2; +https://okx.ai)"
 
 

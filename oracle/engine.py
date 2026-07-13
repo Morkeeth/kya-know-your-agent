@@ -78,7 +78,7 @@ def _live_label(probe: dict) -> str:
 def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str, dict],
                 agent_id: str | None = None, *, malicious_hosts: list[str] | None = None,
                 feedback: dict | None = None, owner_addrs: list[str] | None = None,
-                history: dict | None = None) -> Verdict:
+                history: dict | None = None, identity: dict | None = None) -> Verdict:
     """
     agent_info    : the `agentInfo` from `onchainos agent service-list` (may be None).
     services      : the `list` array (each has endpoint, fee, serviceType, ...).
@@ -266,6 +266,26 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         signals.append(Signal("malicious", -60,
             f"Endpoint flagged MALICIOUS by OKX security scan (phishing/drainer): {malicious_hosts[0]}.",
             "critical", cap=15))
+
+    # ---- Anti-impersonation: endpoint-borrowing & fund-diversion (identity) ----
+    # A LISTED, live, well-reviewed endpoint can belong to someone ELSE. KYA is
+    # blind to that unless it checks who the endpoint says it is, and where it
+    # sends the money. Absent evidence is neutral; a positive CONTRADICTION bites.
+    if identity:
+        if identity.get("domain_binding") == "match":
+            signals.append(Signal("domain_binding", +6,
+                "Endpoint is domain-bound to this agent (.well-known/agent-registration).", "good"))
+        elif identity.get("domain_binding") == "mismatch":
+            signals.append(Signal("domain_binding", -45,
+                "Endpoint's .well-known registration names a DIFFERENT agent — "
+                "endpoint-borrowing / impersonation.", "critical", cap=25))
+        if identity.get("payto") == "match":
+            signals.append(Signal("payto", +6,
+                "x402 payment routes to the agent's registered wallet (payTo verified).", "good"))
+        elif identity.get("payto") == "mismatch":
+            signals.append(Signal("payto", -40,
+                "x402 payment routes to a wallet that ISN'T the agent's registered one — "
+                "fund diversion.", "critical", cap=25))
 
     # ---- A2: audit reputation by WHO reviewed, not the aggregate star average ----
     if feedback:

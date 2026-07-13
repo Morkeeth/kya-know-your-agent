@@ -13,7 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest  # noqa: E402
 
-from oracle.data import _classify, _is_json, guard_url, BlockedTarget  # noqa: E402
+from oracle.data import (  # noqa: E402
+    _classify, _is_json, guard_url, BlockedTarget, _registration_ids, _x402_paytos,
+)
 
 URL = "https://svc.example.com/api"
 
@@ -94,6 +96,21 @@ def test_offhost_redirect_is_offhost():
 def test_is_json_detects_body_without_header():
     r = _resp(200, body='{"a":1}')  # html content-type but JSON body
     assert _is_json(r) is True
+
+
+# -------------------------------------------- anti-impersonation parsing (slice 6)
+def test_registration_ids_shapes():
+    assert _registration_ids({"registrations": [{"agentId": "2118"}]}) == {"2118"}
+    assert _registration_ids({"agentId": "#5290"}) == {"5290"}          # strips '#'
+    assert _registration_ids({"agents": [{"agentId": 42}, {"agentId": 7}]}) == {"42", "7"}
+    assert _registration_ids({}) == set()
+
+
+def test_x402_paytos_shapes():
+    body = {"accepts": [{"scheme": "exact", "payTo": "0xABC"}, {"payTo": "0xdef"}]}
+    assert _x402_paytos(body) == {"0xabc", "0xdef"}                     # lower-cased
+    assert _x402_paytos({"payTo": "0xFEE"}) == {"0xfee"}
+    assert _x402_paytos({"accepts": []}) == set()
 
 
 # ---------------------------------------------------- name resolution (exact-only)
