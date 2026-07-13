@@ -51,7 +51,7 @@ def fetch_agent(agent_id: str) -> tuple[dict, list[dict]]:
 
     payload = _run_onchainos(["agent", "service-list", "--agent-id", key])
     data = payload.get("data") or []
-    if not data:
+    if not isinstance(data, list) or not data:
         raise AgentNotFound(f"no agent #{agent_id} on OKX.AI")
 
     block = data[0]
@@ -107,9 +107,16 @@ def probe_endpoints(services: list[dict]) -> dict[str, dict]:
     return {url: res for url, res in zip(urls, results)}
 
 
+def _reg(host: str) -> str:
+    # Strip a leading www. so an apex->www (or www->apex) redirect isn't flagged
+    # as off-host. Not a full public-suffix parse — good enough for liveness.
+    h = host.lower()
+    return h[4:] if h.startswith("www.") else h
+
+
 def _same_host(a: str, b: str) -> bool:
     try:
-        return httpx.URL(a).host.lower() == httpx.URL(b).host.lower()
+        return _reg(httpx.URL(a).host) == _reg(httpx.URL(b).host)
     except Exception:  # noqa: BLE001
         return False
 

@@ -63,6 +63,32 @@ def test_wash_traded_cheap_sales_do_not_reach_safe():
     assert v.verdict != SAFE, f"wash-trade reached {v.verdict} ({v.score})"
 
 
+def test_decoy_median_inflation_does_not_reach_safe():
+    """Red-team #1: list an expensive DECOY service (never sold) to inflate the
+    median, while wash-trading a sub-cent one. Must still not reach SAFE."""
+    ep = "https://svc.example.com/api"
+    services = [
+        {"endpoint": ep, "fee": "0.001", "serviceType": "A2MCP", "serviceName": "Cheap (washed)"},
+        {"endpoint": ep, "fee": "0.10", "serviceType": "A2MCP", "serviceName": "Decoy (never sold)"},
+    ]
+    v = score_agent(_asp(salesCount=10, securityRate="5.0"), services, _healthy(ep))
+    assert v.verdict != SAFE, f"decoy-median wash reached {v.verdict} ({v.score})"
+
+
+def test_free_service_high_count_does_not_reach_safe():
+    """Red-team #4: 50 FREE 'sales' cost ~gas only — a count must not buy SAFE."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=50, securityRate="5.0"), _svc(ep, "0"), _healthy(ep))
+    assert v.verdict != SAFE, f"free-service count reached {v.verdict} ({v.score})"
+
+
+def test_real_priced_volume_is_safe():
+    """Legit: 30 sales x 0.10 USDT = real settled volume -> SAFE."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=30), _svc(ep, "0.10"), _healthy(ep))
+    assert v.verdict == SAFE
+
+
 # ------------------------------------------------------------------ dead -> BLOCK
 def test_dead_endpoint_is_block():
     ep = "https://svc.example.com/api"

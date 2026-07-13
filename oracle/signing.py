@@ -90,10 +90,20 @@ class Signer:
         }
 
 
-def verify_envelope(digest_hex: str, env: dict, at: int | None = None) -> bool:
-    """Verify a signed verdict envelope: signature valid AND not expired."""
+def verify_envelope(digest_hex: str, env: dict, expected_pubkey: str,
+                    at: int | None = None) -> bool:
+    """Verify a signed verdict envelope against a PINNED Oracle public key.
+
+    `expected_pubkey` is the Oracle's key the consumer fetched once from /pubkey
+    and hardcoded. Without pinning, an attacker just ships their own pubkey in the
+    envelope and self-signs a SAFE verdict — the signature would 'verify' against
+    the attacker's own key. Expiry is recomputed from the SIGNED fields, never the
+    unsigned `expires_at`, so it can't be extended by editing the envelope.
+    """
+    if env.get("pubkey") != expected_pubkey:
+        return False
     now = int(time.time()) if at is None else at
-    if now > env.get("expires_at", 0):
+    if now > env["signed_at"] + env["ttl"]:
         return False
     return verify(_message(digest_hex, env["signed_at"], env["ttl"]),
                   env["signature"], env["pubkey"])

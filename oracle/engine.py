@@ -158,14 +158,13 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     # 10x for ~$0.01 and you'd clear a count-based gate. So SAFE is gated on
     # settled volume (sales x median fee), and sub-cent sales cap at CAUTION.
     sales = _to_int(agent_info.get("salesCount")) or 0
-    median_fee = _median([f for f in (_to_float(s.get("fee")) for s in services) if f is not None])
-    volume = sales * median_fee if (median_fee is not None) else None
-    vtxt = f" (~{volume:.2f} USDT settled)" if volume is not None else ""
-
-    # A high *count* is expensive to wash even at low prices; real *volume* also
-    # proves it. Either clears SAFE. A handful of sub-cent sales clears neither.
-    strong = sales >= 100 or (volume is not None and volume >= 5)
-    real = sales >= 50 or (volume is not None and volume >= 0.5)
+    # Use the CHEAPEST fee you actually PAY (min non-zero), never the median: a
+    # median is trivially inflated by listing an expensive decoy service that's
+    # never sold, while the real wash-traded service stays sub-cent.
+    paid_fees = [f for f in (_to_float(s.get("fee")) for s in services) if f is not None and f > 0]
+    eff_fee = min(paid_fees) if paid_fees else None
+    volume = sales * eff_fee if eff_fee is not None else 0.0
+    vtxt = f" (~{volume:.2f} USDT settled @ ≥{eff_fee:g})" if eff_fee is not None else " (no paid pricing)"
 
     if sales == 0:
         signals.append(Signal("sales", 0,
@@ -174,15 +173,30 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     elif sales < 10:
         signals.append(Signal("sales", +4,
             f"Only {sales} completed sale(s){vtxt} — barely proven.", "warn", cap=69))
-    elif strong:
-        signals.append(Signal("sales", +26,
-            f"{sales} sales{vtxt} — strong, earned track record.", "good"))
-    elif real:
-        signals.append(Signal("sales", +16, f"{sales} sales{vtxt} — real track record.", "good"))
+    elif eff_fee is None:
+        # Only free services — a free "sale" costs gas, so a count proves nothing.
+        signals.append(Signal("sales", +2,
+            f"{sales} sales but only free services — no paid track record to trust.", "warn", cap=69))
+    elif eff_fee < 0.01:
+        # Sub-cent pricing: USDT is cheap, so require a COUNT that's costly/effortful
+        # to wash (100+ txs, likely distinct buyers) before it can clear SAFE.
+        if sales >= 100:
+            signals.append(Signal("sales", +22,
+                f"{sales} sales{vtxt} — high count offsets sub-cent pricing.", "good"))
+        else:
+            signals.append(Signal("sales", +6,
+                f"{sales} sub-cent sales{vtxt} — cheap to wash-trade at this count; unconvincing.",
+                "warn", cap=69))
     else:
-        signals.append(Signal("sales", +6,
-            f"{sales} sales but thin volume{vtxt} — count is cheap to wash-trade; unconvincing.",
-            "warn", cap=69))
+        # Real pricing (≥0.01): settled volume is the earned signal.
+        if volume >= 5 and sales >= 20:
+            signals.append(Signal("sales", +26,
+                f"{sales} sales{vtxt} — strong, earned track record.", "good"))
+        elif volume >= 0.5:
+            signals.append(Signal("sales", +16, f"{sales} sales{vtxt} — real track record.", "good"))
+        else:
+            signals.append(Signal("sales", +6,
+                f"{sales} sales but thin volume{vtxt} — unconvincing.", "warn", cap=69))
 
     sec_rate = _to_float(agent_info.get("securityRate"))
     if sec_rate is not None:
