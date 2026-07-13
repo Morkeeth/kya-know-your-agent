@@ -1,36 +1,35 @@
 """
 KYA visual credentials — a hardened, self-contained SVG "agent passport".
 
+Rendered in the KYA brand identity: lime (#D9F94C) on black, white workhorse
+text, and the signature EYE as the verdict device —
+    CLEARED = an open, watchful lime eye
+    WARY    = a narrowed amber eye
+    WOLF    = a slashed red eye ("we see through you").
+
 Two renders:
-  render_stamp(...)    -> small embeddable entry-stamp badge (for READMEs / sites)
+  render_stamp(...)    -> small embeddable eye badge (for READMEs / sites)
   render_passport(...) -> the full passport data-page card (the shareable hero)
 
-Aesthetic: OKX border-control brutalism — stark ink on off-white, a square-tile
-security grid (the OKX "building blocks" motif), a serif passport header, and an
-OCR-style monospace machine-readable zone (MRZ) that actually encodes the signed
-verdict digest. The verdict is an ink ENTRY STAMP: CLEARED / WARY / WOLF.
-
-Security (per SVG best practice): every dynamic value is XML-escaped, verdict is
-allowlisted, no external refs/scripts/fonts. Serve with a locked-down CSP.
+Security: every dynamic value is XML-escaped, verdict is allowlisted, no external
+refs/scripts/fonts. Serve with a locked-down CSP.
 """
 from __future__ import annotations
 
-# ink + paper + one accent per verdict (kept off the cream/serif slop cluster:
-# cool near-white paper, true-ink text, a single saturated stamp colour).
-INK = "#111111"
-PAPER = "#F7F7F4"
-FAINT = "#111111"  # used at low opacity for the security grid
-_ACCENT = {
-    "SAFE": "#1f8f4e",     # clearance green
-    "CAUTION": "#b8860b",  # wary amber
-    "BLOCK": "#c0392b",    # wolf red
-}
+# ---- KYA brand tokens ----
+BG = "#0B0B0C"          # near-black page
+PANEL = "#141416"       # slightly raised panel
+INK = "#FFFFFF"         # primary text
+MUTE = "#8A8A8E"        # muted labels
+LIME = "#D9F94C"        # brand accent
+_ACCENT = {"SAFE": LIME, "CAUTION": "#F4B740", "BLOCK": "#FF5247"}
 _STAMP_WORD = {"SAFE": "CLEARED", "CAUTION": "WARY", "BLOCK": "WOLF"}
+_EYE_STATE = {"SAFE": "open", "CAUTION": "wary", "BLOCK": "wolf"}
 _ALLOWED = {"SAFE", "CAUTION", "BLOCK"}
 
-_SERIF = "Georgia, 'Times New Roman', serif"
-_MONO = "'SF Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace"
+_ROUND = "'Arial Rounded MT Bold', 'Helvetica Neue', Helvetica, sans-serif"
 _SANS = "'Helvetica Neue', Helvetica, Arial, sans-serif"
+_MONO = "'SF Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace"
 
 
 def _esc(s) -> str:
@@ -55,39 +54,77 @@ def _wrap(text: str, width: int, max_lines: int = 2) -> list[str]:
         lines.append(cur)
     if not lines:
         lines = [text[:width]]
-    # if the text didn't fully fit, mark the last line
     if len(" ".join(lines)) < len(text):
         lines[-1] = (lines[-1][:width - 1].rstrip() + "…") if len(lines[-1]) >= width else lines[-1] + "…"
     return lines[:max_lines]
 
 
-def _mrz(s: str, width: int) -> str:
-    """Passport machine-readable-zone formatting: uppercase, spaces->'<', padded."""
-    out = "".join(c if (c.isalnum()) else "<" for c in s.upper())
-    return (out + "<" * width)[:width]
-
-
 def _accent(verdict: str) -> str:
-    return _ACCENT.get(verdict, INK)
+    return _ACCENT.get(verdict, _ACCENT["BLOCK"])
+
+
+def _guilloche(cx: float, cy: float, R: float, r: float, d: float,
+               color: str, opacity: float, sw: float = 0.6) -> str:
+    """A hypotrochoid rosette — the classic banknote/passport security-print lace.
+    Pure parametric math -> one path; deterministic, resolution-independent."""
+    import math
+    k = (R - r) / r
+    pts, steps = [], 720
+    for i in range(steps + 1):
+        t = (i / steps) * 2 * math.pi * (r if r == int(r) else 6)
+        x = (R - r) * math.cos(t) + d * math.cos(k * t)
+        y = (R - r) * math.sin(t) - d * math.sin(k * t)
+        pts.append(f"{cx + x:.1f} {cy + y:.1f}")
+    return (f'<path d="M {" L ".join(pts)}" fill="none" stroke="{color}" '
+            f'stroke-width="{sw}" opacity="{opacity}"/>')
+
+
+def _eye(cx: float, cy: float, scale: float, color: str, state: str) -> str:
+    """The KYA eye, drawn per verdict state. scale ~ half-width in px.
+      open = wide & alert (lashes) · wary = narrowed squint (brow) · wolf = slashed."""
+    w = scale
+    h = scale * (0.62 if state == "open" else 0.34 if state == "wary" else 0.58)
+    almond = (f'M {cx-w:.1f} {cy:.1f} Q {cx:.1f} {cy-h:.1f} {cx+w:.1f} {cy:.1f} '
+              f'Q {cx:.1f} {cy+h:.1f} {cx-w:.1f} {cy:.1f} Z')
+    sw = max(3, scale * 0.09)
+    parts = [f'<path d="{almond}" fill="{color}"/>',
+             f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{h*0.58:.1f}" fill="{BG}"/>']  # pupil hole
+    if state == "open":
+        parts.append("".join(
+            f'<line x1="{cx+dx:.1f}" y1="{cy-h-6:.1f}" x2="{cx+dx*1.15:.1f}" y2="{cy-h-scale*0.42:.1f}" '
+            f'stroke="{color}" stroke-width="{sw:.1f}" stroke-linecap="round"/>'
+            for dx in (-w*0.42, 0, w*0.42)))
+    elif state == "wary":
+        # a lowered brow over a narrowed eye — suspicion, not a frown
+        parts.append(f'<line x1="{cx-w*0.95:.1f}" y1="{cy-h-scale*0.30:.1f}" x2="{cx+w*0.55:.1f}" '
+                     f'y2="{cy-h-scale*0.10:.1f}" stroke="{color}" stroke-width="{sw:.1f}" stroke-linecap="round"/>')
+    else:  # wolf — a diagonal slash through the eye
+        parts.append(f'<line x1="{cx-w*1.05:.1f}" y1="{cy+h*1.4:.1f}" x2="{cx+w*1.05:.1f}" y2="{cy-h*1.4:.1f}" '
+                     f'stroke="{color}" stroke-width="{max(5, scale*0.13):.1f}" stroke-linecap="round"/>')
+    return f'<g>{"".join(parts)}</g>'
+
+
+def _wordmark(x: float, y: float, size: float, eye_color: str = LIME) -> str:
+    """'KYA' with the eye tucked into the A (approximation of the brand mark)."""
+    return (f'<text x="{x:.1f}" y="{y:.1f}" font-family="{_ROUND}" font-weight="800" '
+            f'font-size="{size:.0f}" letter-spacing="-1" fill="{INK}">KYA</text>'
+            f'<circle cx="{x+size*1.62:.1f}" cy="{y-size*0.30:.1f}" r="{size*0.09:.1f}" fill="{eye_color}"/>')
 
 
 # --------------------------------------------------------------------- stamp
 def render_stamp(verdict: str, agent_id: str, date_str: str = "") -> str:
-    """A small (240x84) embeddable entry-stamp badge."""
+    """A small (260x92) embeddable eye badge."""
     verdict = verdict if verdict in _ALLOWED else "BLOCK"
     col = _accent(verdict)
     word = _STAMP_WORD[verdict]
-    aid = _esc(agent_id)
-    date = _esc(date_str)
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="240" height="84" viewBox="0 0 240 84" role="img" aria-label="KYA {word}">
-  <rect width="240" height="84" fill="{PAPER}"/>
-  <g transform="rotate(-4 120 42)">
-    <rect x="10" y="12" width="220" height="60" fill="none" stroke="{col}" stroke-width="3" rx="4"/>
-    <rect x="16" y="18" width="208" height="48" fill="none" stroke="{col}" stroke-width="1" opacity="0.6" rx="2"/>
-    <text x="24" y="38" font-family="{_MONO}" font-size="10" letter-spacing="2" fill="{col}">KYA · KNOW YOUR AGENT</text>
-    <text x="24" y="60" font-family="{_SERIF}" font-weight="700" font-size="26" fill="{col}">{word}</text>
-    <text x="228" y="60" text-anchor="end" font-family="{_MONO}" font-size="9" fill="{col}" opacity="0.8">#{aid} {date}</text>
-  </g>
+    aid, date = _esc(agent_id), _esc(date_str)
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="260" height="92" viewBox="0 0 260 92" role="img" aria-label="KYA {word}">
+  <rect width="260" height="92" rx="14" fill="{BG}"/>
+  <rect x="1" y="1" width="258" height="90" rx="13" fill="none" stroke="{col}" stroke-width="1.5" opacity="0.5"/>
+  {_eye(52, 46, 26, col, _EYE_STATE[verdict])}
+  <text x="94" y="40" font-family="{_MONO}" font-size="10" letter-spacing="2.5" fill="{MUTE}">KYA · KNOW YOUR AGENT</text>
+  <text x="94" y="66" font-family="{_ROUND}" font-weight="800" font-size="24" fill="{col}">{word}</text>
+  <text x="248" y="84" text-anchor="end" font-family="{_MONO}" font-size="8.5" fill="{MUTE}">#{aid} {date}</text>
 </svg>"""
 
 
@@ -101,10 +138,10 @@ def render_passport(verdict: str, name: str, agent_id: str, *,
     col = _accent(verdict)
     word = _STAMP_WORD[verdict]
 
-    pron_lines = _wrap((pronouncement or "").strip(), 42, 2)
+    pron_lines = _wrap((pronouncement or "").strip(), 30, 3)  # narrow column, clears the eye
     pron_svg = "".join(
-        f'<text x="0" y="{30 + i*30}" font-family="{_SERIF}" font-style="italic" '
-        f'font-size="20" fill="{INK}">{_esc(("“" if i == 0 else "") + ln + ("”" if i == len(pron_lines)-1 else ""))}</text>'
+        f'<text x="0" y="{28 + i*30}" font-family="{_SANS}" font-style="italic" '
+        f'font-size="19" fill="{INK}">{_esc(("“" if i == 0 else "") + ln + ("”" if i == len(pron_lines)-1 else ""))}</text>'
         for i, ln in enumerate(pron_lines))
 
     nm = _esc((name or "UNKNOWN AGENT").strip()[:26])
@@ -117,46 +154,43 @@ def render_passport(verdict: str, name: str, agent_id: str, *,
     serving = sum(1 for lbl in eps.values() if "live" in str(lbl))
     ep_txt = _esc(f"{serving}/{len(eps)} serving" if eps else "none")
 
-    # MRZ: two OCR-style lines; line 2 embeds verdict + agent + digest head.
-    mrz1 = _mrz(f"PAKYA{name or 'UNKNOWN'}", 40)
-    mrz2 = _mrz(f"{agent_id}<{verdict}<{(digest or '')[:16]}", 40)
-    mrz1, mrz2 = _esc(mrz1), _esc(mrz2)
+    mrz1 = _esc(_mrz(f"PAKYA{name or 'UNKNOWN'}", 40))
+    mrz2 = _esc(_mrz(f"{agent_id}<{verdict}<{(digest or '')[:16]}", 40))
     pk = _esc((pubkey or "")[:16])
+    initial = _esc((name or "?")[:1].upper())
+    microtext = _esc(("KYA · KNOW YOUR AGENT · OKX.AI · X LAYER · " * 6)[:150])
 
     W, H = 680, 960
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-label="KYA agent passport: {word}">
   <defs>
-    <pattern id="tiles" width="16" height="16" patternUnits="userSpaceOnUse">
-      <rect width="7" height="7" fill="{FAINT}" opacity="0.05"/>
+    <pattern id="tiles" width="17" height="17" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="{INK}" opacity="0.035"/>
     </pattern>
   </defs>
-  <rect width="{W}" height="{H}" fill="{PAPER}"/>
+  <rect width="{W}" height="{H}" fill="{BG}"/>
   <rect width="{W}" height="{H}" fill="url(#tiles)"/>
-  <rect x="24" y="24" width="{W-48}" height="{H-48}" fill="none" stroke="{INK}" stroke-width="2"/>
-  <rect x="34" y="34" width="{W-68}" height="{H-68}" fill="none" stroke="{INK}" stroke-width="0.75" opacity="0.5"/>
+  {_guilloche(238, 706, 132, 24, 36, LIME, 0.10)}
+  {_guilloche(238, 706, 84, 15, 22, LIME, 0.07)}
+  <rect x="22" y="22" width="{W-44}" height="{H-44}" fill="none" stroke="{INK}" stroke-width="1.5" opacity="0.25"/>
+  <rect x="22" y="22" width="{W-44}" height="6" fill="{LIME}"/>
 
   <!-- header -->
-  <g transform="translate(56 92)">
-    <!-- KYA tile wordmark -->
-    <g fill="{INK}">
-      <rect x="0" y="-26" width="10" height="10"/><rect x="0" y="-13" width="10" height="10"/><rect x="0" y="0" width="10" height="10"/>
-      <rect x="13" y="-26" width="10" height="10"/><rect x="26" y="-26" width="10" height="10"/>
-    </g>
-    <text x="52" y="-4" font-family="{_SERIF}" font-weight="700" font-size="34" letter-spacing="4" fill="{INK}">KYA</text>
-    <text x="52" y="18" font-family="{_MONO}" font-size="11" letter-spacing="3" fill="{INK}" opacity="0.7">KNOW YOUR AGENT</text>
-    <text x="{W-112}" y="-8" text-anchor="end" font-family="{_MONO}" font-size="10" letter-spacing="2" fill="{INK}" opacity="0.7">AGENT PASSPORT CONTROL</text>
-    <text x="{W-112}" y="10" text-anchor="end" font-family="{_MONO}" font-size="10" letter-spacing="2" fill="{INK}" opacity="0.5">X LAYER · OKX.AI</text>
+  <g transform="translate(54 104)">
+    {_wordmark(0, 0, 40)}
+    <text x="0" y="20" font-family="{_MONO}" font-size="10.5" letter-spacing="4" fill="{MUTE}">KNOW YOUR AGENT</text>
+    <text x="{W-108}" y="-16" text-anchor="end" font-family="{_MONO}" font-size="10" letter-spacing="2" fill="{MUTE}">AGENT PASSPORT CONTROL</text>
+    <text x="{W-108}" y="2" text-anchor="end" font-family="{_MONO}" font-size="10" letter-spacing="2" fill="{LIME}" opacity="0.8">X LAYER · OKX.AI</text>
   </g>
-  <line x1="56" y1="120" x2="{W-56}" y2="120" stroke="{INK}" stroke-width="1"/>
+  <line x1="54" y1="128" x2="{W-54}" y2="128" stroke="{INK}" stroke-width="1" opacity="0.2"/>
+  <text x="54" y="139" font-family="{_MONO}" font-size="4" letter-spacing="0.6" fill="{MUTE}" opacity="0.65">{microtext}</text>
 
-  <!-- photo box (monogram) + data fields -->
-  <g transform="translate(56 150)">
-    <rect x="0" y="0" width="150" height="180" fill="none" stroke="{INK}" stroke-width="1.5"/>
-    <rect x="0" y="0" width="150" height="180" fill="url(#tiles)"/>
-    <text x="75" y="118" text-anchor="middle" font-family="{_SERIF}" font-weight="700" font-size="96" fill="{INK}" opacity="0.85">{_esc((name or '?')[:1].upper())}</text>
-    <text x="75" y="150" text-anchor="middle" font-family="{_MONO}" font-size="9" fill="{INK}" opacity="0.55">ASP</text>
+  <!-- photo box + data -->
+  <g transform="translate(54 156)">
+    <rect x="0" y="0" width="150" height="182" rx="6" fill="{PANEL}" stroke="{INK}" stroke-opacity="0.15"/>
+    <text x="75" y="120" text-anchor="middle" font-family="{_ROUND}" font-weight="800" font-size="94" fill="{INK}" opacity="0.9">{initial}</text>
+    <text x="75" y="152" text-anchor="middle" font-family="{_MONO}" font-size="9" letter-spacing="2" fill="{MUTE}">ASP</text>
   </g>
-  <g transform="translate(232 150)" font-family="{_MONO}">
+  <g transform="translate(230 156)" font-family="{_MONO}">
     {_field(0, "AGENT / NAME", nm)}
     {_field(1, "AGENT No.", f"#{aid}")}
     {_field(2, "COMPLETED SALES", sales)}
@@ -165,41 +199,44 @@ def render_passport(verdict: str, name: str, agent_id: str, *,
     {_field(5, "ENDPOINTS", ep_txt)}
   </g>
 
-  <!-- entry stamp -->
-  <g transform="translate(468 470) rotate(-11)" opacity="0.92">
-    <ellipse cx="0" cy="0" rx="132" ry="86" fill="none" stroke="{col}" stroke-width="4"/>
-    <ellipse cx="0" cy="0" rx="120" ry="75" fill="none" stroke="{col}" stroke-width="1.25" opacity="0.7"/>
-    <text x="0" y="-40" text-anchor="middle" font-family="{_MONO}" font-size="11" letter-spacing="3" fill="{col}">KYA CONTROL</text>
-    <text x="0" y="22" text-anchor="middle" font-family="{_SERIF}" font-weight="700" font-size="58" letter-spacing="2" fill="{col}">{word}</text>
-    <text x="0" y="52" text-anchor="middle" font-family="{_MONO}" font-size="11" letter-spacing="2" fill="{col}">{_esc(issued or '')}</text>
+  <!-- verdict: the eye -->
+  <g transform="translate(468 480)">
+    <circle cx="0" cy="0" r="120" fill="none" stroke="{col}" stroke-width="1.25" opacity="0.4"/>
+    {_eye(0, -14, 74, col, _EYE_STATE[verdict])}
+    <text x="0" y="72" text-anchor="middle" font-family="{_ROUND}" font-weight="800" font-size="40" letter-spacing="1" fill="{col}">{word}</text>
+    <text x="0" y="96" text-anchor="middle" font-family="{_MONO}" font-size="10" letter-spacing="3" fill="{MUTE}">{_esc(issued or '')}</text>
   </g>
 
   <!-- pronouncement -->
-  <g transform="translate(56 384)">
-    <text x="0" y="0" font-family="{_MONO}" font-size="10" letter-spacing="2" fill="{INK}" opacity="0.55">VERDICT OF THE WATCH</text>
+  <g transform="translate(54 400)">
+    <text x="0" y="0" font-family="{_MONO}" font-size="10" letter-spacing="2.5" fill="{LIME}" opacity="0.85">VERDICT OF THE WATCH</text>
     {pron_svg}
   </g>
 
   <!-- signing / validity -->
-  <g transform="translate(56 {H-176})" font-family="{_MONO}" font-size="11" fill="{INK}">
-    <line x1="0" y1="-18" x2="{W-112}" y2="-18" stroke="{INK}" stroke-width="0.75" opacity="0.5"/>
-    <text x="0" y="6" opacity="0.7">ISSUED  {_esc(issued or '—')}</text>
-    <text x="220" y="6" opacity="0.7">EXPIRES  {_esc(expires or '—')}</text>
-    <text x="0" y="26" opacity="0.7">ED25519 · {pk}…  ·  re-verify at /verify?agentId={aid}</text>
+  <g transform="translate(54 {H-176})" font-family="{_MONO}" font-size="11" fill="{MUTE}">
+    <line x1="0" y1="-18" x2="{W-108}" y2="-18" stroke="{INK}" stroke-width="0.75" opacity="0.2"/>
+    <text x="0" y="6">ISSUED  <tspan fill="{INK}">{_esc(issued or '—')}</tspan></text>
+    <text x="230" y="6">EXPIRES  <tspan fill="{INK}">{_esc(expires or '—')}</tspan></text>
+    <text x="0" y="26">ED25519 · {pk}…  ·  re-verify at kya.fyi/verify?agentId={aid}</text>
   </g>
 
   <!-- machine-readable zone -->
-  <g transform="translate(56 {H-96})">
-    <rect x="-8" y="-26" width="{W-96}" height="76" fill="{INK}" opacity="0.04"/>
-    <text x="0" y="0" font-family="{_MONO}" font-size="18" letter-spacing="2" fill="{INK}">{mrz1}</text>
-    <text x="0" y="30" font-family="{_MONO}" font-size="18" letter-spacing="2" fill="{INK}">{mrz2}</text>
+  <g transform="translate(54 {H-96})">
+    <rect x="-8" y="-26" width="{W-92}" height="76" rx="4" fill="{LIME}" opacity="0.06"/>
+    <text x="0" y="0" font-family="{_MONO}" font-size="18" letter-spacing="2" fill="{INK}" opacity="0.92">{mrz1}</text>
+    <text x="0" y="30" font-family="{_MONO}" font-size="18" letter-spacing="2" fill="{INK}" opacity="0.92">{mrz2}</text>
   </g>
 </svg>"""
 
 
+def _mrz(s: str, width: int) -> str:
+    out = "".join(c if c.isalnum() else "<" for c in s.upper())
+    return (out + "<" * width)[:width]
+
+
 def _field(row: int, label: str, value: str) -> str:
-    # value is already escaped by the caller; label is a trusted literal. Escaping
-    # here too would double-encode (a name's '<' would render as literal "&lt;").
+    # value is already escaped by the caller; label is a trusted literal.
     y = row * 30
-    return (f'<text x="0" y="{y}" font-size="9.5" letter-spacing="1.5" fill="{INK}" opacity="0.5">{label}</text>'
+    return (f'<text x="0" y="{y}" font-size="9.5" letter-spacing="1.5" fill="{MUTE}">{label}</text>'
             f'<text x="0" y="{y+16}" font-size="15" fill="{INK}">{value}</text>')
