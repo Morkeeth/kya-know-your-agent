@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""
+KYA in the loop — a reference CALLER.
+
+This is how you actually USE KYA: a buyer agent, before it pays or hires a
+counterparty ASP, calls KYA, cryptographically verifies the signed verdict
+against a PINNED oracle key, and refuses to transact on BLOCK. Reputation is not
+advice here — it gates the payment.
+
+Runs against the live deployment (a real client of the real service). Point it at
+any OKX.AI agent id:  ./.venv/bin/python scripts/demo_caller.py 2118 3820
+
+Trust model: fetch the oracle key ONCE from /pubkey and pin it. Then every verdict
+is checked with verify_envelope against that pinned key (a rogue oracle can't ship
+its own key and self-sign SAFE) and against the signed freshness window.
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import httpx  # noqa: E402
+from oracle.signing import verify_envelope  # noqa: E402
+
+HOST = "https://kya-production-f846.up.railway.app"
+
+# What a caller does with each verdict — reputation gating a real payment decision.
+POLICY = {
+    "SAFE":    ("PROCEED", "pay the counterparty"),
+    "CAUTION": ("HOLD", "route to manual review — unproven, do not auto-pay"),
+    "BLOCK":   ("REFUSE", "abort the transaction — do NOT send funds"),
+}
+
+
+def pin_oracle_key(host: str) -> str:
+    """Fetch the oracle's Ed25519 key ONCE and pin it. In a real client this is
+    hardcoded after first fetch; here we fetch live for the demo."""
+    return httpx.get(f"{host}/pubkey", timeout=10).json()["pubkey"]
+
+
+def ask_kya(host: str, agent_id: str) -> dict:
+    return httpx.get(f"{host}/verify", params={"agentId": agent_id}, timeout=20).json()
+
+
+def gate_transaction(host: str, pinned_key: str, agent_id: str, amount: str = "5 USDC") -> bool:
+    body = ask_kya(host, agent_id)
+    verdict, digest, env = body["verdict"], body["digest"], body["signature"]
+
+    # 1) Is the verdict AUTHENTIC + FRESH? (pinned key, signed expiry)
+    authentic = verify_envelope(digest, env, pinned_key)
+    name = body.get("name") or f"#{agent_id}"
+    print(f"\n▸ Buyer agent wants to pay {name} (#{agent_id}) {amount}.")
+    print(f"  KYA verdict: {verdict} (score {body['score']}) · signature "
+          f"{'VALID ✓' if authentic else 'INVALID ✗'}")
+    if not authentic:
+        print("  DECISION: REFUSE — verdict signature failed to verify. Treat as untrusted.")
+        return False
+
+    # 2) Apply policy — reputation gates the payment.
+    action, why = POLICY.get(verdict, ("REFUSE", "unknown verdict"))
+    top = (body.get("reasons") or ["—"])[0]
+    print(f"  why: {top}")
+    print(f"  DECISION: {action} — {why}.")
+    return action == "PROCEED"
+
+
+def main():
+    ids = sys.argv[1:] or ["2118", "3820"]  # default: a SAFE one and a BLOCK one
+    print("== KYA in the loop: gating payments on signed trust verdicts ==")
+    key = pin_oracle_key(HOST)
+    print(f"pinned oracle key: {key[:16]}…")
+    paid, refused = 0, 0
+    for aid in ids:
+        try:
+            (paid := paid + 1) if gate_transaction(HOST, key, aid) else (refused := refused + 1)
+        except (httpx.HTTPError, KeyError) as e:
+            print(f"  #{aid}: could not verify ({e})")
+    print(f"\nSummary: {paid} payment(s) allowed, {refused} refused/held by KYA.")
+
+
+if __name__ == "__main__":
+    main()
