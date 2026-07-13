@@ -4,8 +4,10 @@ its endpoints for liveness. Kept separate from engine.py so scoring stays pure.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
+import socket
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -142,6 +144,69 @@ def fetch_feedback(agent_id: str) -> dict:
     return out
 
 
+# --------------------------------------------------------------------- SSRF guard
+# KYA probes endpoints that a HOSTILE agent controls, from the same host that holds
+# the signing key. Without this guard a malicious ASP could register
+# `endpoint=http://169.254.169.254/latest/meta-data/…` (steal cloud IAM creds) or a
+# public URL that 302s to an internal RPC — a classic SSRF, and worse in a *trust*
+# product because the target also controls what "healthy" looks like. Primary control
+# (per OWASP): resolve the host and reject if ANY resolved IP is non-public; belt &
+# braces: an explicit metadata denylist, https/http-only, and NO redirect following.
+_METADATA_HOSTS = {"169.254.169.254", "fd00:ec2::254", "metadata.google.internal",
+                   "metadata.goog"}
+
+
+class BlockedTarget(Exception):
+    """The endpoint resolves to internal/reserved space or uses a bad scheme."""
+
+
+def _ip_is_public(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+                or ip.is_multicast or ip.is_unspecified)
+
+
+def guard_url(url: str) -> None:
+    """Raise BlockedTarget if `url` could pivot to internal / cloud-metadata infra.
+
+    Resolves the host and validates the PARSED IP (so decimal/hex/octal-encoded
+    address tricks are caught too — we check what it resolves to, not the string).
+    """
+    try:
+        u = httpx.URL(url)
+    except Exception as e:  # noqa: BLE001
+        raise BlockedTarget(f"unparseable URL: {url!r}") from e
+    if u.scheme not in ("http", "https"):
+        raise BlockedTarget(f"scheme {u.scheme!r} not allowed (http/https only)")
+    host = (u.host or "").strip().rstrip(".").lower()
+    if not host:
+        raise BlockedTarget("no host in URL")
+    if host in _METADATA_HOSTS:
+        raise BlockedTarget(f"cloud-metadata host {host!r}")
+    # A bare IP literal: validate it directly (no DNS).
+    try:
+        if not _ip_is_public(str(ipaddress.ip_address(host))):
+            raise BlockedTarget(f"non-public IP literal {host!r}")
+        return
+    except ValueError:
+        pass  # it's a hostname — resolve it
+    try:
+        infos = socket.getaddrinfo(host, u.port or (443 if u.scheme == "https" else 80),
+                                   type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        # Can't resolve — could be a transient DNS blip or a dead domain. This is
+        # NOT an SSRF signal (there's no internal target to hit), so DON'T hard-block
+        # it as malicious; let the real HTTP probe fail and be scored as unreachable.
+        return
+    addrs = {info[4][0] for info in infos}
+    for ip_str in addrs:
+        if not _ip_is_public(ip_str):
+            raise BlockedTarget(f"{host!r} resolves to non-public IP {ip_str}")
+
+
 _UA = "Mozilla/5.0 (compatible; OracleTrustProbe/0.2; +https://okx.ai)"
 
 
@@ -197,8 +262,20 @@ _RANK = {"x402": 0, "api": 1, "parked": 2, "broken": 3, "offhost": 4, "down": 5}
 def _classify(url: str, r: httpx.Response) -> str:
     """Classify one response the way an A2MCP caller would experience the endpoint."""
     code = r.status_code
+    # We no longer FOLLOW redirects (SSRF), so inspect the Location ourselves: a
+    # redirect pointing off-host is the parked/hijacked/bait signal we still want.
+    if 300 <= code < 400:
+        loc = r.headers.get("location", "")
+        if loc:
+            try:
+                dest = str(httpx.URL(url).join(loc))
+            except Exception:  # noqa: BLE001
+                dest = loc
+            if not _same_host(url, dest):
+                return "offhost"              # redirect AWAY — parked / hijacked
+        return "broken"                       # on-host / headerless redirect — not serving
     if not _same_host(url, str(r.url)):
-        return "offhost"                      # redirected away — parked / hijacked
+        return "offhost"                      # defensive (redirects are off)
     if code == 402:
         return "x402"                         # proper payment challenge = working paid endpoint
     if 500 <= code < 600:
@@ -213,13 +290,20 @@ def _classify(url: str, r: httpx.Response) -> str:
 
 
 def _probe_one(url: str) -> dict:
+    # SSRF guard FIRST: never let a hostile endpoint point the prober at internal
+    # or cloud-metadata infrastructure. A blocked target is a strong BLOCK signal.
+    try:
+        guard_url(url)
+    except BlockedTarget as e:
+        return {"reachable": False, "status": None, "healthy": False,
+                "category": "blocked", "down_kind": "blocked", "block_reason": str(e)}
     # A2MCP endpoints are POST-first; GET commonly yields 402/405. Try both and
     # keep the BEST evidence, so a POST-only service isn't mistaken for dead.
     best_cat, best_status, down_kind = None, None, "refused"
     for method in ("POST", "GET"):
         try:
             r = httpx.request(
-                method, url, timeout=_PROBE_TIMEOUT, follow_redirects=True,
+                method, url, timeout=_PROBE_TIMEOUT, follow_redirects=False,
                 headers={"User-Agent": _UA}, json={} if method == "POST" else None,
             )
             cat = _classify(url, r)

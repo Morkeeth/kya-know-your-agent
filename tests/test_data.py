@@ -11,15 +11,54 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from oracle.data import _classify, _is_json  # noqa: E402
+import pytest  # noqa: E402
+
+from oracle.data import _classify, _is_json, guard_url, BlockedTarget  # noqa: E402
 
 URL = "https://svc.example.com/api"
 
 
-def _resp(status, *, json_ct=False, body="", final_url=URL):
+def _resp(status, *, json_ct=False, body="", final_url=URL, location=None):
     headers = {"content-type": "application/json"} if json_ct else {"content-type": "text/html"}
+    if location is not None:
+        headers["location"] = location
     req = httpx.Request("GET", final_url)
     return httpx.Response(status, headers=headers, text=body, request=req)
+
+
+# ---------------------------------------------------------- SSRF guard (slice 2)
+@pytest.mark.parametrize("bad", [
+    "http://169.254.169.254/latest/meta-data/",        # AWS IMDS credential theft
+    "http://metadata.google.internal/computeMetadata/", # GCP metadata
+    "http://127.0.0.1:6379/",                          # loopback (co-located Redis)
+    "http://localhost:8080/verify",                    # loopback by name
+    "http://10.0.0.5/api",                             # RFC1918
+    "http://192.168.1.1/",                             # RFC1918
+    "http://169.254.169.254.nip.io/" if False else "http://[::1]/",  # IPv6 loopback
+    "http://0x7f000001/",                              # hex-encoded 127.0.0.1
+    "http://2130706433/",                              # decimal-encoded 127.0.0.1
+    "file:///etc/passwd",                              # non-http scheme
+    "gopher://internal/",                              # scheme smuggling
+])
+def test_guard_blocks_internal_and_bad_schemes(bad):
+    with pytest.raises(BlockedTarget):
+        guard_url(bad)
+
+
+def test_guard_allows_public_https():
+    # Public, resolvable host must pass (uses real DNS; example.com is stable).
+    guard_url("https://example.com/api")
+
+
+def test_offhost_redirect_via_location_header_is_offhost():
+    # We no longer follow redirects — a 302 pointing away is caught from Location.
+    r = _resp(302, location="https://evil.example.net/landing")
+    assert _classify(URL, r) == "offhost"
+
+
+def test_onhost_redirect_is_broken_not_serving():
+    r = _resp(301, location="/login")  # same-host redirect — not a serving API
+    assert _classify(URL, r) == "broken"
 
 
 def test_402_is_x402():

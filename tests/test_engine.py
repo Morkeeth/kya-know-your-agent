@@ -91,6 +91,20 @@ def test_real_priced_volume_is_safe():
     assert v.verdict == SAFE
 
 
+def _blocked(url): return {url: {"reachable": False, "status": None, "healthy": False,
+                                 "category": "blocked", "down_kind": "blocked"}}
+
+
+# --------------------------------------------- SSRF: internal-target endpoint (slice 2)
+def test_ssrf_blocked_endpoint_forces_block_even_if_proven():
+    """An endpoint the prober refused (resolves to internal/metadata infra) is a
+    drainer/misconfig signal — BLOCK even on a high-sales agent."""
+    ep = "http://169.254.169.254/latest/meta-data/"
+    v = score_agent(_asp(salesCount=500), _svc(ep), _blocked(ep))
+    assert v.verdict == BLOCK
+    assert any(s["key"] == "ssrf" for s in v.signals)
+
+
 # ----------------------------------------------------- A1: malicious endpoint
 def test_malicious_endpoint_forces_block_even_if_proven():
     """A LIVE endpoint flagged by the phishing/blacklist scan must BLOCK, even on a

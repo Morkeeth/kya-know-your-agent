@@ -109,15 +109,26 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     endpoints = [s.get("endpoint") for s in services if s.get("endpoint")]
     if endpoints:
         n = len(endpoints)
-        healthy = [e for e in endpoints if probes.get(e, {}).get("healthy")]
-        reachable = [e for e in endpoints if probes.get(e, {}).get("reachable")]
-        got_402 = any(probes.get(e, {}).get("status") == 402 for e in endpoints)
-        kinds = {probes.get(e, {}).get("down_kind") for e in endpoints}
-        if len(healthy) == n:
-            signals.append(Signal("liveness", +18, f"All {n} service endpoint(s) serving (2xx/402).", "good"))
+        # An endpoint that resolves to internal / cloud-metadata space is refused by
+        # the prober (SSRF guard) — a strong BLOCK signal: it can't be a real service
+        # and is most likely a drainer probing the oracle's own infra.
+        blocked = [e for e in endpoints if probes.get(e, {}).get("category") == "blocked"]
+        if blocked:
+            signals.append(Signal("ssrf", -50,
+                f"{len(blocked)}/{n} endpoint(s) point at internal / non-public infrastructure — "
+                f"refused to probe (SSRF-blocked); malicious or badly misconfigured.",
+                "critical", cap=20))
+        live = [e for e in endpoints if e not in blocked]  # scored for liveness
+        m = len(live)
+        healthy = [e for e in live if probes.get(e, {}).get("healthy")]
+        reachable = [e for e in live if probes.get(e, {}).get("reachable")]
+        got_402 = any(probes.get(e, {}).get("status") == 402 for e in live)
+        kinds = {probes.get(e, {}).get("down_kind") for e in live}
+        if m and len(healthy) == m:
+            signals.append(Signal("liveness", +18, f"All {m} service endpoint(s) serving (2xx/402).", "good"))
         elif healthy:
             signals.append(Signal("liveness", +2,
-                f"Only {len(healthy)}/{n} endpoints actually serving — partial outage.", "warn", cap=62))
+                f"Only {len(healthy)}/{m} endpoints actually serving — partial outage.", "warn", cap=62))
         elif reachable:
             # Hosts answer but with 404/5xx or an off-host redirect: present, not serving.
             signals.append(Signal("liveness", -15,
@@ -126,10 +137,10 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         elif "timeout" in kinds and "refused" not in kinds:
             # Couldn't reach, but only via timeout — could be WAF/cold-start. Unverified, not proven-dead.
             signals.append(Signal("liveness", -12,
-                f"Could not reach {n} endpoint(s) (timeout) — liveness unverified.", "warn", cap=58))
-        else:
+                f"Could not reach {m} endpoint(s) (timeout) — liveness unverified.", "warn", cap=58))
+        elif m:
             signals.append(Signal("liveness", -40,
-                f"None of {n} endpoint(s) reachable (connection refused) — service is DOWN.",
+                f"None of {m} endpoint(s) reachable (connection refused) — service is DOWN.",
                 "critical", cap=25))
         if got_402:
             signals.append(Signal("x402", +4,
