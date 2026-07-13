@@ -7,7 +7,7 @@ records what it saw and flags when the agent has CHANGED since we last looked.
 """
 from __future__ import annotations
 
-from . import store
+from . import store, settlement as _settlement
 from .data import (fetch_agent, probe_endpoints, scan_malicious, fetch_feedback,
                    fetch_identity)
 from .engine import score_agent, Verdict
@@ -22,10 +22,15 @@ def assess(agent_id: str, *, persist: bool = True) -> Verdict:
     owner = [str(info.get("ownerAddress") or "").lower(),
              str(info.get("agentWalletAddress") or "").lower()]
     hist = store.uptime(agent_id) if persist else None
+    # Default-OFF; only reads on-chain settlements when explicitly enabled + keyed.
+    settle = None
+    if _settlement.enabled():
+        wallet = str(info.get("agentWalletAddress") or "")
+        settle = _settlement.fetch_settlements(wallet) if wallet else None
 
     v = score_agent(info, services, probes, agent_id=agent_id,
                     malicious_hosts=malicious, feedback=feedback, owner_addrs=owner,
-                    history=hist, identity=identity)
+                    history=hist, identity=identity, settlement=settle)
 
     if persist:
         sh = store.state_hash(info, services, feedback)

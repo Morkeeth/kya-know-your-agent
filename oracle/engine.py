@@ -78,7 +78,8 @@ def _live_label(probe: dict) -> str:
 def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str, dict],
                 agent_id: str | None = None, *, malicious_hosts: list[str] | None = None,
                 feedback: dict | None = None, owner_addrs: list[str] | None = None,
-                history: dict | None = None, identity: dict | None = None) -> Verdict:
+                history: dict | None = None, identity: dict | None = None,
+                settlement: dict | None = None) -> Verdict:
     """
     agent_info    : the `agentInfo` from `onchainos agent service-list` (may be None).
     services      : the `list` array (each has endpoint, fee, serviceType, ...).
@@ -261,6 +262,17 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         signals.append(Signal("reputation", delta,
             f"{pos}/{n} positive reviews — {detail}.", sev, cap=cap))
 
+    # ---- On-chain settlements: distinct-payer Sybil resistance (the wash killer) ----
+    # buyerCount is null in OKX data, so a wash-trader posts N sub-cent sales from a
+    # couple of wallets and a count gate can't see it. Real x402 sales settle as
+    # on-chain transfers, so distinct SENDERS = distinct buyers, and machine-identical
+    # amounts / high concentration are the wash signature. Only present when the
+    # on-chain reader is explicitly enabled (default-off), so absence never penalises.
+    if settlement is not None:
+        sig = _settlement_signal(settlement)
+        if sig is not None:
+            signals.append(sig)
+
     # ---- A1: malicious endpoint (a LIVE endpoint can still be a drainer) ----
     if malicious_hosts:
         signals.append(Signal("malicious", -60,
@@ -402,6 +414,47 @@ def _to_int(x: Any) -> int | None:
     """Tolerant int: handles 4, "4", "4.0", 4.0 — anything the CLI might emit."""
     f = _to_float(x)
     return int(f) if f is not None else None
+
+
+def _identical_ratio(amounts: list[float]) -> float:
+    """Fraction of tx that share the single most-common amount. Machine-generated
+    wash volume is near-identical repeated amounts; organic sales vary. ~0 for
+    organic, ~1 for a bot replaying the same sub-cent transfer."""
+    if not amounts:
+        return 0.0
+    counts: dict[float, int] = {}
+    for a in amounts:
+        counts[a] = counts.get(a, 0) + 1
+    return max(counts.values()) / len(amounts)
+
+
+def _settlement_signal(s: dict) -> "Signal | None":
+    """Turn on-chain settlement facts into a trust signal. Concentration + distinct
+    payers + identical-amount replay are robust at the small N real agents have;
+    each is a documented wash signature (see docs/V2-RESEARCH.md)."""
+    dp = int(s.get("distinct_payers") or 0)
+    payers = s.get("payers") or {}
+    amounts = s.get("amounts") or []
+    vol = float(s.get("onchain_volume") or 0.0)
+    tx = int(s.get("tx_count") or len(amounts))
+
+    if tx == 0:
+        # Claimed sales with NO on-chain money behind them — unproven / fabricated.
+        return Signal("settlement", 0,
+            "No on-chain settlements found — claimed sales aren't backed by money.",
+            "warn", cap=64)
+    total = sum(payers.values()) or vol or 1.0
+    top1 = (max(payers.values()) / total) if payers else 1.0
+    identical = _identical_ratio(amounts)
+    # Wash signatures: paid by a tiny cluster, or one wallet dominates, or the same
+    # amount is replayed over and over.
+    if (dp <= 3 and tx >= 10) or top1 >= 0.60 or identical >= 0.90:
+        return Signal("settlement", -30,
+            f"On-chain settlements look washed: {dp} distinct payer(s), top-1 wallet "
+            f"{top1:.0%} of volume, {identical:.0%} identical amounts.", "critical", cap=44)
+    return Signal("settlement", +14,
+        f"{dp} distinct on-chain payers, {vol:.2f} settled — earned volume, hard to wash.",
+        "good")
 
 
 def wilson_lower_bound(pos: int, n: int, z: float = 1.96) -> float:
