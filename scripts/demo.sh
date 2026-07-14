@@ -52,6 +52,7 @@ if "verdict" not in d:
 got = d["verdict"]
 print("   NAME     " + (d.get("name") or "(no ASP record)"))
 print("   VERDICT  {}   score {}/100   confidence {}%".format(got, d["score"], d["confidence"]))
+print("   MAX SAFE ${}   <- priced trust: safe single-tx amount, earned from settled volume".format(d.get("max_safe_usd", 0)))
 for r in d.get("reasons", [])[:4]:
     print("           ", r)
 sig = d.get("signature") or {}
