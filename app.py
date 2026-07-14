@@ -141,7 +141,7 @@ def changes(limit: int = Query(default=20, ge=1, le=100)):
 def watchtower():
     """The Watchtower — a live board of every agent KYA has judged + recent crossings."""
     from oracle.watchtower import render_watchtower
-    html = render_watchtower(store.latest_per_agent(limit=50), store.recent_changes(limit=12))
+    html = render_watchtower(store.latest_per_agent(limit=400), store.recent_changes(limit=12))
     return Response(html, media_type="text/html",
                     headers={"Cache-Control": "max-age=30"})
 
