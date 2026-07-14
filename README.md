@@ -1,6 +1,6 @@
-# KYA — Know Your Agent 👁️
+# KYA - Know Your Agent 👁️
 
-**The trust layer for the agent economy.** On OKX.AI, agents hire and pay each other blind. Everyone vets tokens and wallets; **nobody vets the agents themselves.** Before your agent pays or hires a counterparty, call KYA and get back a signed `SAFE` / `CAUTION` / `BLOCK` verdict on that counterparty — and refuse to transact when it says BLOCK.
+**The trust layer for the agent economy.** On OKX.AI, agents hire and pay each other blind. Everyone vets tokens and wallets; **nobody vets the agents themselves.** Before your agent pays or hires a counterparty, call KYA and get back a signed `SAFE` / `CAUTION` / `BLOCK` verdict on that counterparty - and refuse to transact when it says BLOCK.
 
 **Live:** https://kya-production-f846.up.railway.app · **ASP:** OKX.AI Agent #5290 · **Verdicts are Ed25519-signed.**
 
@@ -12,11 +12,11 @@ curl "https://kya-production-f846.up.railway.app/verify?agentId=2118"   # Otto A
 
 ## The problem (why this is necessary)
 
-Connecting an AI agent or MCP server is running someone else's code with a wallet and your tools. Today you either trust it blind, or you do what a security team does — a slow, manual review that is obsolete the moment the counterparty ships an update. There is no `npm audit` for agents. KYA is that missing primitive: a callable, signed, continuously re-checked verdict on any agent, built from the attack classes that actually happen in this market.
+Connecting an AI agent or MCP server is running someone else's code with a wallet and your tools. Today you either trust it blind, or you do what a security team does - a slow, manual review that is obsolete the moment the counterparty ships an update. There is no `npm audit` for agents. KYA is that missing primitive: a callable, signed, continuously re-checked verdict on any agent, built from the attack classes that actually happen in this market.
 
 A star rating is a claim. KYA checks the receipts.
 
-## What KYA checks — the threat model
+## What KYA checks - the threat model
 
 KYA covers both halves of the problem: an agent's **reputation and endpoint**, and the **content it exposes**. Each maps to a documented agent/MCP attack class.
 
@@ -33,7 +33,7 @@ KYA covers both halves of the problem: an agent's **reputation and endpoint**, a
 
 ## SAFE must be earned
 
-Every *listed* ASP already passed OKX review, is online, and has a live endpoint — that is table stakes, not trust. So the engine is **gated, not additive**: it starts neutral, adds signal deltas, then clamps to the **lowest cap** any signal imposed. One hard failure overrides a pile of good signals — you cannot buy back a dead endpoint or a poisoned tool with a nice rating.
+Every *listed* ASP already passed OKX review, is online, and has a live endpoint - that is table stakes, not trust. So the engine is **gated, not additive**: it starts neutral, adds signal deltas, then clamps to the **lowest cap** any signal imposed. One hard failure overrides a pile of good signals - you cannot buy back a dead endpoint or a poisoned tool with a nice rating.
 
 Bands: **SAFE** ≥ 70 · **CAUTION** 45–69 · **BLOCK** < 45. Every verdict carries a **confidence** (thin evidence itself caps at CAUTION).
 
@@ -56,8 +56,8 @@ review-ring, or not a real provider). Listed is table stakes; trusted is earned.
 
 ## Trust is cryptographic, and a timeline
 
-- **Signed:** each verdict signs `sha256(canonical verdict) + issued_at + ttl` with a key KYA controls; the public key is at `/pubkey`. A consumer pins it once and verifies every verdict **offline** — a rogue oracle can't ship its own key and self-sign SAFE.
-- **A timeline, not a snapshot:** a verdict is only trustworthy inside its TTL. KYA persists every verdict, re-verifies when an agent changes, and records the transition — so a patched dead endpoint or a silently poisoned tool description **flips** and shows up on `/changes`. A point-in-time review can't do that.
+- **Signed:** each verdict signs `sha256(canonical verdict) + issued_at + ttl` with a key KYA controls; the public key is at `/pubkey`. A consumer pins it once and verifies every verdict **offline** - a rogue oracle can't ship its own key and self-sign SAFE.
+- **A timeline, not a snapshot:** a verdict is only trustworthy inside its TTL. KYA persists every verdict, re-verifies when an agent changes, and records the transition - so a patched dead endpoint or a silently poisoned tool description **flips** and shows up on `/changes`. A point-in-time review can't do that.
 
 ## See it
 
@@ -89,7 +89,7 @@ scripts/         demo_caller, demo_flip, demo_poison, smoke, demo.sh
 tests/           103 tests incl. wash-trade, dead-endpoint, SSRF, and tool-poisoning regressions.
 ```
 
-`engine.py` has no network or subprocess dependency — the part that decides "should money move" is small, pure, and adversarially tested (two red-team passes; every fix locked with a regression).
+`engine.py` has no network or subprocess dependency - the part that decides "should money move" is small, pure, and adversarially tested (two red-team passes; every fix locked with a regression).
 
 ## Quickstart
 
@@ -108,4 +108,4 @@ Live and deployed on Railway; ASP #5290 registered on OKX.AI (listing review in 
 
 ## Why it matters beyond the hackathon
 
-"Should this transaction happen, with this counterparty, right now?" is the question a hardware wallet answers for humans — one layer up, for agents. The agent economy needs that check to be a callable, signed, always-fresh service. That is KYA.
+"Should this transaction happen, with this counterparty, right now?" is the question a hardware wallet answers for humans - one layer up, for agents. The agent economy needs that check to be a callable, signed, always-fresh service. That is KYA.

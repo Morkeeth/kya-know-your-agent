@@ -1,4 +1,4 @@
-"""Probe-classifier tests — the behaviour-aware liveness logic, no network.
+"""Probe-classifier tests - the behaviour-aware liveness logic, no network.
 
 We hand-build httpx.Response objects to exercise _classify: an A2MCP endpoint
 speaks JSON / 402, a parked domain serves HTML, a broken one 5xx, a hijacked one
@@ -53,13 +53,13 @@ def test_guard_allows_public_https():
 
 
 def test_offhost_redirect_via_location_header_is_offhost():
-    # We no longer follow redirects — a 302 pointing away is caught from Location.
+    # We no longer follow redirects - a 302 pointing away is caught from Location.
     r = _resp(302, location="https://evil.example.net/landing")
     assert _classify(URL, r) == "offhost"
 
 
 def test_onhost_redirect_is_broken_not_serving():
-    r = _resp(301, location="/login")  # same-host redirect — not a serving API
+    r = _resp(301, location="/login")  # same-host redirect - not a serving API
     assert _classify(URL, r) == "broken"
 
 
@@ -72,7 +72,7 @@ def test_2xx_json_is_api():
 
 
 def test_405_is_api_endpoint_present():
-    # POST-only A2MCP endpoint returns 405 to a GET — it still exists.
+    # POST-only A2MCP endpoint returns 405 to a GET - it still exists.
     assert _classify(URL, _resp(405, json_ct=True, body='{"error":"use POST"}')) == "api"
 
 
@@ -108,7 +108,7 @@ def test_registration_ids_shapes():
 
 def test_registration_ids_skip_cross_registry():
     """Cross-registry (foreign agentRegistry) ids are NOT comparable to an OKX id, so
-    they must be excluded — else a legit cross-registry agent is falsely accused of
+    they must be excluded - else a legit cross-registry agent is falsely accused of
     endpoint-borrowing. Regression for Barker Yield Agent (OKX #2012 / ERC-8004 #52838):
     verifying OKX #2012, its .well-known names #52838@Base -> no comparable id -> the
     engine keeps domain_binding 'absent' (neutral), not a -45 impersonation BLOCK."""

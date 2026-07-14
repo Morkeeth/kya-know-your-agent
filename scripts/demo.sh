@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# KYA — the full demo, narrated. One reproducible script.
+# KYA - the full demo, narrated. One reproducible script.
 #
 # TWO fenced sections, never blurred (demo integrity):
 #   [LIVE]        real GET /verify responses from the DEPLOYED service, on REAL
 #                 OKX.AI marketplace agents. Nothing local, nothing mocked.
 #   [CONTROLLED]  the real engine / scanner / probe / store, driven against a
-#                 clearly-labelled TEST agent — because no real agent will flip a
+#                 clearly-labelled TEST agent - because no real agent will flip a
 #                 dead endpoint or poison a tool description on cue. The DETECTION
 #                 is 100% real; only the subject is a fixture.
 #
@@ -31,7 +31,7 @@ rule() { printf '─%.0s' {1..66}; echo; }
 # headline verdict. Any divergence flips FAIL so the script ends red.
 live_verify() {
   local id="$1" want="$2" label="$3"
-  echo; rule; echo "  $label   —   GET $KYA_URL/verify?agentId=$id"; rule
+  echo; rule; echo "  $label   -   GET $KYA_URL/verify?agentId=$id"; rule
   curl -s --max-time 30 "$KYA_URL/verify?agentId=$id" | "$PY" -c '
 import sys, json
 want = sys.argv[1]
@@ -50,55 +50,55 @@ sig = d.get("signature") or {}
 if sig.get("signature"):
     print("   SIGNED   ed25519 " + sig["signature"][:24] + "…  (verify offline against /pubkey)")
 if got != want:
-    print("   ✗ EXPECTED {} — deployed service diverged".format(want)); sys.exit(1)
+    print("   ✗ EXPECTED {} - deployed service diverged".format(want)); sys.exit(1)
 print("   ✓ live verdict matches the demo claim ({})".format(want))
 ' "$want" || FAIL=1
 }
 
 echo
-echo "██ KYA — Know Your Agent ██   the trust layer for the agent economy"
+echo "██ KYA - Know Your Agent ██   the trust layer for the agent economy"
 echo "Before your agent pays or hires a counterparty, it calls KYA and refuses on BLOCK."
 echo "Deployed service under test: $KYA_URL"
 
 # ── health gate ──────────────────────────────────────────────────────────────
 echo; echo "› deployed service health:"
-curl -s --max-time 15 "$KYA_URL/health" | "$PY" -c 'import sys,json; d=json.load(sys.stdin); print("  ", d); sys.exit(0 if d.get("ok") else 2)' || { echo "  service unhealthy — aborting"; exit 2; }
+curl -s --max-time 15 "$KYA_URL/health" | "$PY" -c 'import sys,json; d=json.load(sys.stdin); print("  ", d); sys.exit(0 if d.get("ok") else 2)' || { echo "  service unhealthy - aborting"; exit 2; }
 
-# ══ [LIVE] the clean spread — real deployed responses, real agents ═══════════
-echo; echo "══════════ [LIVE]  THE SPREAD — KYA discriminates on real agents ══════════"
-live_verify 2118 SAFE    "✅ Otto AI — a proven provider (216 settled sales)"
-live_verify 2023 SAFE    "✅ Onchain Data Explorer — 800+ sales, all endpoints serving"
-live_verify 3733 CAUTION "⚠️  Scope — barely proven (one sale)"
-live_verify 3369 CAUTION "⚠️  WhalePulse — live but UNPROVEN (nobody has used it)"
-live_verify 3820 BLOCK   "⛔ Sentiment Oracle — listed & online, but endpoints 502 + zero sales"
+# ══ [LIVE] the clean spread - real deployed responses, real agents ═══════════
+echo; echo "══════════ [LIVE]  THE SPREAD - KYA discriminates on real agents ══════════"
+live_verify 2118 SAFE    "✅ Otto AI - a proven provider (216 settled sales)"
+live_verify 2023 SAFE    "✅ Onchain Data Explorer - 800+ sales, all endpoints serving"
+live_verify 3733 CAUTION "⚠️  Scope - barely proven (one sale)"
+live_verify 3369 CAUTION "⚠️  WhalePulse - live but UNPROVEN (nobody has used it)"
+live_verify 3820 BLOCK   "⛔ Sentiment Oracle - listed & online, but endpoints 502 + zero sales"
 
-# ══ [LIVE] KYA in the payment loop — the caller REFUSES on BLOCK ══════════════
-echo; echo "══════════ [LIVE]  KYA IN THE LOOP — a buyer agent gates its payments ══════════"
+# ══ [LIVE] KYA in the payment loop - the caller REFUSES on BLOCK ══════════════
+echo; echo "══════════ [LIVE]  KYA IN THE LOOP - a buyer agent gates its payments ══════════"
 echo "(reference integration: fetch verdict → verify signature against pinned key → refuse on BLOCK)"
 KYA_URL="$KYA_URL" "$PY" scripts/demo_caller.py 2118 2023 3820 || FAIL=1
 
-# ══ [CONTROLLED] the detectors firing — real engine, labelled TEST agent ══════
-echo; echo "══════════ [CONTROLLED]  THE DETECTORS — real engine/scanner, TEST fixture ══════════"
+# ══ [CONTROLLED] the detectors firing - real engine, labelled TEST agent ══════
+echo; echo "══════════ [CONTROLLED]  THE DETECTORS - real engine/scanner, TEST fixture ══════════"
 echo "Not the deployed service and not a real agent: a controlled subject so the REAL"
-echo "detector can be seen firing. Trust is a timeline — a clean agent can turn."
+echo "detector can be seen firing. Trust is a timeline - a clean agent can turn."
 echo
-echo "› rug-pull #1 — a patched/decaying endpoint, re-verified (BLOCK⇄SAFE transition):"
+echo "› rug-pull #1 - a patched/decaying endpoint, re-verified (BLOCK⇄SAFE transition):"
 "$PY" scripts/demo_flip.py || FAIL=1
 echo
-echo "› rug-pull #2 — a tool description silently poisoned after approval (SAFE→BLOCK):"
+echo "› rug-pull #2 - a tool description silently poisoned after approval (SAFE→BLOCK):"
 "$PY" scripts/demo_poison.py || FAIL=1
 
 # ══ live board pointer ═══════════════════════════════════════════════════════
-echo; echo "══════════ [LIVE]  THE WATCHTOWER — every agent KYA has judged ══════════"
+echo; echo "══════════ [LIVE]  THE WATCHTOWER - every agent KYA has judged ══════════"
 echo "  open $KYA_URL/watchtower                  # live verdict board + crossings"
 echo "  open $KYA_URL/passport?agentId=3820       # the shareable BLOCK passport"
 
 echo
 rule
 if [ "$FAIL" -eq 0 ]; then
-  echo "  ✓ DEMO GREEN — every [LIVE] claim held against the deployed service."
+  echo "  ✓ DEMO GREEN - every [LIVE] claim held against the deployed service."
 else
-  echo "  ✗ DEMO RED — a live claim diverged or a beat errored (see ✗ above)."
+  echo "  ✗ DEMO RED - a live claim diverged or a beat errored (see ✗ above)."
 fi
 rule
 exit "$FAIL"

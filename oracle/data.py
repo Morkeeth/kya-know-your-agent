@@ -68,7 +68,7 @@ def fetch_agent(agent_id: str) -> tuple[dict, list[dict]]:
 def _pick_exact(items: list[dict], name: str) -> str | None:
     """Return the agentId whose name EXACTLY (case-insensitively) matches, else None.
 
-    Marketplace search is semantic and ranks loosely — it will happily return
+    Marketplace search is semantic and ranks loosely - it will happily return
     'Factor Credit Desk' for a query of 'Otto AI'. For a trust oracle a confident
     wrong answer is worse than none, so we never fall back to the top hit.
     """
@@ -89,7 +89,7 @@ def resolve_agent_id(name: str) -> str | None:
 def scan_malicious(services: list[dict]) -> list[str]:
     """Run OKX's phishing/blacklist scan on each distinct endpoint host.
     Returns the list of hosts flagged malicious (empty = clean). A live endpoint
-    can be malicious — liveness alone never catches that."""
+    can be malicious - liveness alone never catches that."""
     seen, flagged = {}, []
     for s in services:
         ep = s.get("endpoint")
@@ -112,7 +112,7 @@ def scan_malicious(services: list[dict]) -> list[str]:
 
 
 def fetch_feedback(agent_id: str) -> dict:
-    """Per-review reviewer addresses + rating distribution — so reputation can be
+    """Per-review reviewer addresses + rating distribution - so reputation can be
     audited by WHO reviewed, not just an aggregate star average."""
     try:
         d = _run_onchainos(["agent", "feedback-list", "--agent-id", str(agent_id)]).get("data") or {}
@@ -148,7 +148,7 @@ def fetch_feedback(agent_id: str) -> dict:
 # KYA probes endpoints that a HOSTILE agent controls, from the same host that holds
 # the signing key. Without this guard a malicious ASP could register
 # `endpoint=http://169.254.169.254/latest/meta-data/…` (steal cloud IAM creds) or a
-# public URL that 302s to an internal RPC — a classic SSRF, and worse in a *trust*
+# public URL that 302s to an internal RPC - a classic SSRF, and worse in a *trust*
 # product because the target also controls what "healthy" looks like. Primary control
 # (per OWASP): resolve the host and reject if ANY resolved IP is non-public; belt &
 # braces: an explicit metadata denylist, https/http-only, and NO redirect following.
@@ -173,7 +173,7 @@ def guard_url(url: str) -> None:
     """Raise BlockedTarget if `url` could pivot to internal / cloud-metadata infra.
 
     Resolves the host and validates the PARSED IP (so decimal/hex/octal-encoded
-    address tricks are caught too — we check what it resolves to, not the string).
+    address tricks are caught too - we check what it resolves to, not the string).
     """
     try:
         u = httpx.URL(url)
@@ -192,12 +192,12 @@ def guard_url(url: str) -> None:
             raise BlockedTarget(f"non-public IP literal {host!r}")
         return
     except ValueError:
-        pass  # it's a hostname — resolve it
+        pass  # it's a hostname - resolve it
     try:
         infos = socket.getaddrinfo(host, u.port or (443 if u.scheme == "https" else 80),
                                    type=socket.SOCK_STREAM)
     except socket.gaierror:
-        # Can't resolve — could be a transient DNS blip or a dead domain. This is
+        # Can't resolve - could be a transient DNS blip or a dead domain. This is
         # NOT an SSRF signal (there's no internal target to hit), so DON'T hard-block
         # it as malicious; let the real HTTP probe fail and be scored as unreachable.
         return
@@ -214,7 +214,7 @@ def _registration_ids(reg: dict) -> set[str]:
     An entry qualified with a foreign `agentRegistry` (a different ERC-8004 registry /
     chain) names an id in THAT registry's space and is NOT numerically comparable to an
     OKX marketplace id. Comparing across namespaces turns a legitimate cross-registry
-    agent into a false impersonation hit — e.g. Barker Yield Agent is OKX #2012 but its
+    agent into a false impersonation hit - e.g. Barker Yield Agent is OKX #2012 but its
     .well-known correctly names its Base ERC-8004 id #52838; the raw numbers differ, yet
     there is no borrowing. Dolphins vs sharks: only compare WITHIN a namespace. Cross-
     registry is 'not comparable' (→ neutral upstream), never 'guilty'. A same-namespace
@@ -254,10 +254,10 @@ def _x402_paytos(body: dict) -> set[str]:
 def fetch_identity(agent_id: str, agent_info: dict | None, services: list[dict]) -> dict:
     """Anti-impersonation checks on the PRIMARY endpoint (best-effort, guarded):
 
-      domain_binding — does {host}/.well-known/agent-registration.json name THIS
+      domain_binding - does {host}/.well-known/agent-registration.json name THIS
                        agent? Catches endpoint-BORROWING: agent B listing agent A's
                        live, well-reviewed endpoint to inherit its liveness score.
-      payto          — does the x402 402 challenge route payment to the agent's own
+      payto          - does the x402 402 challenge route payment to the agent's own
                        registered wallet? Catches fund-DIVERSION.
 
     Returns each as 'match' | 'mismatch' | 'absent'. Absent = NEUTRAL: in 2026 few
@@ -322,7 +322,7 @@ def probe_endpoints(services: list[dict]) -> dict[str, dict]:
 
 def _reg(host: str) -> str:
     # Strip a leading www. so an apex->www (or www->apex) redirect isn't flagged
-    # as off-host. Not a full public-suffix parse — good enough for liveness.
+    # as off-host. Not a full public-suffix parse - good enough for liveness.
     h = host.lower()
     return h[4:] if h.startswith("www.") else h
 
@@ -361,8 +361,8 @@ def _classify(url: str, r: httpx.Response) -> str:
             except Exception:  # noqa: BLE001
                 dest = loc
             if not _same_host(url, dest):
-                return "offhost"              # redirect AWAY — parked / hijacked
-        return "broken"                       # on-host / headerless redirect — not serving
+                return "offhost"              # redirect AWAY - parked / hijacked
+        return "broken"                       # on-host / headerless redirect - not serving
     if not _same_host(url, str(r.url)):
         return "offhost"                      # defensive (redirects are off)
     if code == 402:
@@ -374,7 +374,7 @@ def _classify(url: str, r: httpx.Response) -> str:
     if code == 405 or (400 <= code < 500 and _is_json(r)):
         return "api"                          # endpoint exists; wrong method/params (e.g. POST-only)
     if 200 <= code < 300:
-        return "parked"                       # 2xx HTML landing page — not an API
+        return "parked"                       # 2xx HTML landing page - not an API
     return "broken"
 
 

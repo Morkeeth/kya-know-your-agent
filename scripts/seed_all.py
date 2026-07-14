@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Full-marketplace sweep — evaluate every public OKX.AI agent through KYA and leave
+Full-marketplace sweep - evaluate every public OKX.AI agent through KYA and leave
 the verdicts sitting in the deployed store, so the Watchtower is comprehensive and
 any agent that later calls /verify hits an already-warm, recently re-verified result.
 
 The OKX marketplace has no "list all" endpoint (search REQUIRES a query), so this
 does a keyword-union sweep across many category terms + pages and dedupes the ids.
-That is broad but NOT provably exhaustive — the coverage line at the end reports how
+That is broad but NOT provably exhaustive - the coverage line at the end reports how
 many ids were discovered so a thin sweep can't masquerade as "the whole marketplace".
 
 Usage:
@@ -69,7 +69,7 @@ def verify(aid: str) -> tuple[str, str, object, object]:
         with urllib.request.urlopen(f"{KYA_URL}/verify?agentId={aid}", timeout=35) as r:
             d = json.load(r)
         return (aid, d.get("verdict", "?"), d.get("score"), (d.get("name") or "")[:36])
-    except Exception as e:  # noqa: BLE001 — a sweep tolerates individual failures
+    except Exception as e:  # noqa: BLE001 - a sweep tolerates individual failures
         return (aid, "ERR", None, str(e)[:40])
 
 
@@ -106,7 +106,7 @@ def main() -> int:
     # A sweep that errors on more than a quarter of agents is not a healthy seed.
     errs = dist.get("ERR", 0)
     if order and errs > len(order) // 4:
-        print(f"⚠️  {errs} errors — deployed service may be rate-limited; re-run to fill gaps.")
+        print(f"⚠️  {errs} errors - deployed service may be rate-limited; re-run to fill gaps.")
         return 1
     return 0
 

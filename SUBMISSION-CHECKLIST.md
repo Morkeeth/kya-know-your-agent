@@ -1,4 +1,4 @@
-# KYA — OKX $100K submission checklist
+# KYA - OKX $100K submission checklist
 
 Deadline **Jul 17**. Live: https://kya-production-f846.up.railway.app · ASP #5290 (listing under review).
 Repo state as of 2026-07-14 (branch `main`).
@@ -46,5 +46,5 @@ Repo state as of 2026-07-14 (branch `main`).
 
 ## Headline for the writeup
 "A star rating is a claim; KYA checks the receipts." Signed, callable, always-fresh
-SAFE/CAUTION/BLOCK on any agent — refuse to transact on BLOCK. Proven live on 82 real
+SAFE/CAUTION/BLOCK on any agent - refuse to transact on BLOCK. Proven live on 82 real
 OKX agents, gated so SAFE must be earned.

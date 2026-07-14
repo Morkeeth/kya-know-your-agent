@@ -1,5 +1,5 @@
 """
-The Oracle — trust-verdict API for OKX.AI ASPs.
+The Oracle - trust-verdict API for OKX.AI ASPs.
 
 A free A2MCP endpoint: another agent calls GET /verify before transacting with a
 counterparty ASP and gets back a signed SAFE/CAUTION/BLOCK verdict.
@@ -24,7 +24,7 @@ from oracle.seal import render_stamp, render_passport
 from oracle.signing import Signer
 
 app = FastAPI(
-    title="KYA — Know Your Agent",
+    title="KYA - Know Your Agent",
     description="Vet any OKX.AI agent before you transact with it. Signed SAFE/CAUTION/BLOCK verdicts.",
     version="0.3.0",
 )
@@ -66,7 +66,7 @@ def _resolve(agentId, name) -> str:
 @app.get("/")
 def root() -> dict:
     return {
-        "service": "KYA — Know Your Agent",
+        "service": "KYA - Know Your Agent",
         "what": TAGLINE,
         "verify": "/verify?agentId=2118  (or ?name=Otto%20AI)",
         "passport": "/passport?agentId=2118  (shareable SVG)",
@@ -124,7 +124,7 @@ def passport(agentId: str | None = Query(default=None), name: str | None = Query
 @app.get("/history")
 def history(agentId: str | None = Query(default=None), name: str | None = Query(default=None),
             limit: int = Query(default=20, ge=1, le=100)):
-    """Every verdict KYA has issued for this agent — trust is a timeline, not a snapshot."""
+    """Every verdict KYA has issued for this agent - trust is a timeline, not a snapshot."""
     aid = _resolve(agentId, name)
     return {"agent_id": aid, "history": store.history(aid, limit=limit),
             "uptime": store.uptime(aid)}
@@ -132,14 +132,14 @@ def history(agentId: str | None = Query(default=None), name: str | None = Query(
 
 @app.get("/changes")
 def changes(limit: int = Query(default=20, ge=1, le=100)):
-    """Recent verdict TRANSITIONS across all agents — who KYA re-verified up or down
+    """Recent verdict TRANSITIONS across all agents - who KYA re-verified up or down
     after they changed (patched a dead endpoint, lost their reviews, went offline)."""
     return {"changes": store.recent_changes(limit=limit)}
 
 
 @app.get("/watchtower")
 def watchtower():
-    """The Watchtower — a live board of every agent KYA has judged + recent crossings."""
+    """The Watchtower - a live board of every agent KYA has judged + recent crossings."""
     from oracle.watchtower import render_watchtower
     html = render_watchtower(store.latest_per_agent(limit=400), store.recent_changes(limit=12))
     return Response(html, media_type="text/html",

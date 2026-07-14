@@ -1,7 +1,7 @@
-# Wash gate — on-chain distinct-payer Sybil killer (currently OFF)
+# Wash gate - on-chain distinct-payer Sybil killer (currently OFF)
 
 **Status: built, tested (`tests/test_settlement.py`), and DEFAULT-OFF.** No OKLink key
-is present in env/secrets as of 2026-07-14, so it is correctly disabled — KYA never
+is present in env/secrets as of 2026-07-14, so it is correctly disabled - KYA never
 claims settlement analysis it did not run (`no_fake_data`).
 
 ## Why it exists
@@ -12,16 +12,16 @@ so the distinct *senders* are the distinct buyers. `settlement.py` reads them fr
 OKLink's X Layer `token-transaction-list` and hands the engine `{distinct_payers,
 onchain_volume, per-payer totals}` for concentration / wash analysis.
 
-## Enable — exactly two steps
+## Enable - exactly two steps
 
-**Step 1 — provide a key and flip the flag (Railway env):**
+**Step 1 - provide a key and flip the flag (Railway env):**
 ```
 OKLINK_API_KEY = <key from https://web3.okx.com/onchain-os/dev-portal>   # or OKX_API_KEY
 KYA_SETTLEMENT = 1
 ```
 `enabled()` requires BOTH. Redeploy.
 
-**Step 2 — verify the one unproven assumption on a REAL settled tx (do NOT skip):**
+**Step 2 - verify the one unproven assumption on a REAL settled tx (do NOT skip):**
 The distinct-payer count is only valid if an inbound transfer's `from` is the **buyer**,
 not an OKX facilitator/settlement contract. If OKX routes buyer → facilitator → agent,
 every `from` is the facilitator and `distinct_payers` collapses to 1 (false wash flag).
