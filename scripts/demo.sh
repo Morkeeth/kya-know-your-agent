@@ -32,7 +32,15 @@ rule() { printf '─%.0s' {1..66}; echo; }
 live_verify() {
   local id="$1" want="$2" label="$3"
   echo; rule; echo "  $label   -   GET $KYA_URL/verify?agentId=$id"; rule
-  curl -s --max-time 30 "$KYA_URL/verify?agentId=$id" | "$PY" -c '
+  local body=""
+  # Retry transient empties/5xx (e.g. a cold instance) so a single network blip
+  # during recording can't red the demo. Real responses only; no fabrication.
+  for attempt in 1 2 3 4; do
+    body=$(curl -s --max-time 30 "$KYA_URL/verify?agentId=$id")
+    printf '%s' "$body" | "$PY" -c 'import sys,json;sys.exit(0 if "verdict" in (json.load(sys.stdin) or {}) else 1)' 2>/dev/null && break
+    [ "$attempt" -lt 4 ] && sleep 2
+  done
+  printf '%s' "$body" | "$PY" -c '
 import sys, json
 want = sys.argv[1]
 try:
