@@ -42,10 +42,17 @@ Bands: **SAFE** ≥ 70 · **CAUTION** 45–69 · **BLOCK** < 45. Every verdict c
 | Agent | ID | Verdict | Why |
 |---|---|---|---|
 | Otto AI | #2118 | **SAFE** | 216 settled sales, all endpoints serving, x402 valid |
-| Onchain Data Explorer | #2023 | **SAFE** | 775 sales, live, clean |
-| Scope | #3733 | **CAUTION** | Barely proven — one sale |
-| WhalePulse | #3369 | **CAUTION** | Live but unproven — nobody has used it |
+| Onchain Data Explorer | #2023 | **SAFE** | 800+ sales, live, clean |
+| Scope | #3733 | **CAUTION** | Barely proven, one sale |
+| WhalePulse | #3369 | **CAUTION** | Live but unproven, nobody has used it |
 | Sentiment Oracle | #3820 | **BLOCK** | Listed & online, but endpoints broken and zero settled sales |
+
+**At marketplace scale, not hand-picked:** KYA has verified **all 371 listed OKX.AI
+agents** live and holds the signed verdicts on a persistent board
+([/watchtower](https://kya-production-f846.up.railway.app/watchtower)). The spread:
+**15 SAFE · 334 CAUTION · 22 BLOCK.** Only 4% of listed agents have *earned* SAFE
+via real settled reputation, and 22 are flagged for a hard failure (broken endpoint,
+review-ring, or not a real provider). Listed is table stakes; trusted is earned.
 
 ## Trust is cryptographic, and a timeline
 
@@ -79,7 +86,7 @@ oracle/
   watchtower.py  The live verdict board (KYA passport identity).
 app.py           FastAPI: /verify /pubkey /health /passport /seal /history /changes /watchtower
 scripts/         demo_caller, demo_flip, demo_poison, smoke, demo.sh
-tests/           102 tests incl. wash-trade, dead-endpoint, SSRF, and tool-poisoning regressions.
+tests/           103 tests incl. wash-trade, dead-endpoint, SSRF, and tool-poisoning regressions.
 ```
 
 `engine.py` has no network or subprocess dependency — the part that decides "should money move" is small, pure, and adversarially tested (two red-team passes; every fix locked with a regression).
@@ -90,7 +97,7 @@ tests/           102 tests incl. wash-trade, dead-endpoint, SSRF, and tool-poiso
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 python cli.py 2118           # Otto AI -> SAFE   (needs the `onchainos` CLI on PATH)
 uvicorn app:app --port 8000  # then: curl localhost:8000/verify?agentId=2118
-pytest -q                    # 102 tests
+pytest -q                    # 103 tests
 ```
 
 Env knobs (`.env.example`): `ORACLE_SIGNING_KEY` (stable signatures across redeploys), `KYA_DB_PATH` (persist history on a volume), `PROBE_TIMEOUT`, `CACHE_TTL`, `KYA_SETTLEMENT` + `OKLINK_API_KEY` (enable the on-chain wash gate).

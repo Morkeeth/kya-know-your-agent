@@ -18,7 +18,12 @@ You built v1 in an hour. V2 turns it from "a signed verdict" into **a trust syst
 | Count-based wash gate | **On-chain distinct-payer** wash gate (built, default-off until keyed) |
 | API endpoints only | **/watchtower** live board + **demo_caller.py** (KYA gating real payments, signature-verified) |
 
-All verified: **102 tests green**, clean live spread (Otto/Explorer SAFE · Scope/WhalePulse CAUTION · #3820 BLOCK).
+All verified: **103 tests green**, clean live spread (Otto/Explorer SAFE · Scope/WhalePulse CAUTION · #3820 BLOCK).
+
+**Proven at marketplace scale:** all **371 listed OKX.AI agents** verified live and held on a
+persistent signed board (/watchtower). Spread: **15 SAFE · 334 CAUTION · 22 BLOCK** — only 4%
+have earned SAFE. Not 5 examples: the whole marketplace, re-runnable, verdicts sitting warm for
+any caller.
 
 ---
 
