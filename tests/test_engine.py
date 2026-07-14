@@ -212,13 +212,34 @@ def test_self_review_is_not_safe():
     assert v.verdict != SAFE
 
 
-def test_review_ring_caps_at_caution():
-    """Many reviews from only 1-2 addresses = a ring -> capped at CAUTION."""
+def test_review_ring_caps_at_caution_when_unproven():
+    """Many reviews from 1-2 addresses on a NOT-sales-proven agent = a ring -> CAUTION."""
     ep = "https://svc.example.com/api"
-    v = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep),
+    v = score_agent(_asp(salesCount=2), _svc(ep, "0.10"), _healthy(ep),
                     feedback={"reviewers": ["0x1", "0x1", "0x1", "0x2"], "count": 4},
                     owner_addrs=["0xowner"])
     assert v.verdict == CAUTION
+
+
+def test_review_ring_not_flagged_when_sales_proven():
+    """Regression (Newsliquid #2135, 389 sales / 9 reviews from 2): a sales-proven agent
+    is NOT flagged for a small concentrated review set - sales are the trust, not reviews."""
+    ep = "https://svc.example.com/api"
+    reviewers = ["0x1"] * 7 + ["0x2"] * 2                    # 9 reviews, 2 distinct
+    v = score_agent(_asp(salesCount=389), _svc(ep, "0.10"), _healthy(ep),
+                    feedback={"reviewers": reviewers, "count": len(reviewers)},
+                    owner_addrs=["0xowner"])
+    assert v.verdict == SAFE
+    assert not any(s["key"] in ("review_ring", "review_concentration") for s in v.signals)
+
+
+def test_proven_a2a_agent_not_capped_for_no_endpoint():
+    """Regression (WorldCupCaller #1891, 174 sales, A2A-only): an A2A agent has no HTTP
+    endpoint to probe, but real settled sales prove delivery - it must not cap at CAUTION."""
+    v = score_agent(_asp(salesCount=174, securityRate="4.7"),
+                    [{"serviceType": "A2A", "fee": "0.5"}], {})
+    assert v.verdict == SAFE
+    assert not any(s.get("cap") == 60 for s in v.signals)
 
 
 def test_review_concentration_caps_larger_ring_when_unproven():

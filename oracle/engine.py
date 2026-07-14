@@ -166,9 +166,19 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
                 signals.append(Signal("latency", -4,
                     f"P95 endpoint latency {slow}ms — degraded, technically-up service.", "warn"))
     else:
-        signals.append(Signal("liveness", 0,
-            "No callable endpoint (A2A-only or incomplete listing) — cannot verify delivery.",
-            "warn", cap=60))
+        a2a_sales = _to_int(agent_info.get("salesCount")) or 0
+        if a2a_sales >= 10:
+            # A2A agents deliver agent-to-agent and never expose an HTTP endpoint, so there
+            # is nothing to probe. Real SETTLED sales ARE the delivery proof — a proven A2A
+            # agent must not be capped for "unverifiable delivery" (regression: WorldCupCaller
+            # #1891 174 sales, OnChain Arb Scout #1719 149, and the 340-sale class).
+            signals.append(Signal("liveness", 0,
+                f"A2A-only (no HTTP endpoint to probe), but {a2a_sales} settled sales prove delivery.",
+                "info"))
+        else:
+            signals.append(Signal("liveness", 0,
+                "No callable endpoint (A2A-only or incomplete listing) — cannot verify delivery.",
+                "warn", cap=60))
 
     # ---- OKX review + status (types coerced; ABSENT != inactive — treat as unknown) ----
     approval = _to_int(agent_info.get("approvalStatus"))
@@ -219,8 +229,12 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
             signals.append(Signal("sales", +22,
                 f"{sales} sales{vtxt} — high count offsets sub-cent pricing.", "good"))
         else:
+            # Sub-cent + under 100 sales is not YET enough costly volume to clear SAFE, but
+            # low price alone is not evidence of washing (that needs the distinct-payer
+            # settlement signal). State the cap honestly without the unfounded accusation
+            # (regression: CertiK #1965 87 sales / 5.0 security, Ethy AI #1851, SignalDesk).
             signals.append(Signal("sales", +6,
-                f"{sales} sub-cent sales{vtxt} — cheap to wash-trade at this count; unconvincing.",
+                f"{sales} sub-cent sales{vtxt} — not yet enough costly volume to clear SAFE.",
                 "warn", cap=69))
     else:
         # Real pricing (≥0.01): settled volume is the earned signal.
@@ -328,10 +342,14 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
                 "critical", cap=25))
         n = len(reviewers)
         distinct = len(set(reviewers))
-        if n >= 3 and distinct <= 2:
+        if n >= 3 and distinct <= 2 and sales < 10:
+            # Only a ring when the agent LEANS on reviews. A sales-proven agent earns trust
+            # from settled volume, and most buyers never review, so a few repeat reviewers
+            # over a large buyer base is normal, not collusion (regression: Newsliquid #2135
+            # with 389 sales / 9 reviews from 2 wallets, ThreeMeme #2438, Explorer #2023).
             signals.append(Signal("review_ring", -12,
-                f"All {n} reviews come from only {distinct} address(es) — possible review ring.",
-                "warn", cap=66))
+                f"All {n} reviews come from only {distinct} address(es), with little settled "
+                f"sales — possible review ring.", "warn", cap=66))
         elif n >= 4 and distinct / n <= 0.5 and sales < 10:
             # Larger ring the <=2 rule misses: e.g. 12 reviews from 4 wallets. Only bites
             # when the agent is LEANING on reviews — a sales-proven agent (real settled
