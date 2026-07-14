@@ -47,7 +47,7 @@ Python + FastAPI, SQLite (persistent volume), Ed25519 signing, onchainos CLI, OK
 **[YOU]** - paste after posting (draft in draft-x-post.md).
 
 **GitHub / source**
-**[YOU]** - the repo has no public remote yet. If the form requires a link, push to a private/public GitHub repo and paste it, or share access. Say the word and I will prep the push.
+https://github.com/Morkeeth/kya-know-your-agent  (public, code + 103 tests + README + deploy docs)
 
 **Anything else / what's next**
 Trust as a timeline, not a snapshot: KYA persists every verdict and re-verifies on change, so a patched dead endpoint or a silently poisoned tool description flips and shows on /changes. On-chain distinct-payer wash gate is built and tested, default-off pending an OKLink key (one-step enable documented).
