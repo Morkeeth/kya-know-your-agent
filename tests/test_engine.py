@@ -203,6 +203,30 @@ def test_review_ring_caps_at_caution():
     assert v.verdict == CAUTION
 
 
+def test_review_concentration_caps_larger_ring_when_unproven():
+    """The gap the <=2 rule missed: 12 reviews from 4 wallets on a NOT-sales-proven agent
+    (leaning on reviews) caps at CAUTION."""
+    ep = "https://svc.example.com/api"
+    reviewers = (["0x1"] * 5 + ["0x2"] * 4 + ["0x3"] * 2 + ["0x4"])  # 12 reviews, 4 distinct
+    v = score_agent(_asp(salesCount=2), _svc(ep, "0.10"), _healthy(ep),
+                    feedback={"reviewers": reviewers, "count": len(reviewers)},
+                    owner_addrs=["0xowner"])
+    assert v.verdict == CAUTION
+    assert any(s["key"] == "review_concentration" for s in v.signals)
+
+
+def test_concentration_does_not_punish_sales_proven_agent():
+    """Regression: a sales-proven agent (like OKX's own Explorer #2023, 800+ sales) with
+    concentrated reviews earns trust from SALES, not reviews - concentration must NOT bite."""
+    ep = "https://svc.example.com/api"
+    reviewers = (["0x1"] * 5 + ["0x2"] * 4 + ["0x3"] * 2 + ["0x4"])
+    v = score_agent(_asp(salesCount=832), _svc(ep, "0.10"), _healthy(ep),
+                    feedback={"reviewers": reviewers, "count": len(reviewers)},
+                    owner_addrs=["0xowner"])
+    assert v.verdict == SAFE
+    assert not any(s["key"] == "review_concentration" for s in v.signals)
+
+
 def test_diverse_reviews_do_not_penalize():
     ep = "https://svc.example.com/api"
     v = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep),

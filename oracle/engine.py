@@ -324,10 +324,20 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
             signals.append(Signal("self_review", -45,
                 "Self-reviewed — a review comes from the agent's own wallet. Reputation is self-dealt.",
                 "critical", cap=25))
+        n = len(reviewers)
         distinct = len(set(reviewers))
-        if len(reviewers) >= 3 and distinct <= 2:
+        if n >= 3 and distinct <= 2:
             signals.append(Signal("review_ring", -12,
-                f"All {len(reviewers)} reviews come from only {distinct} address(es) — possible review ring.",
+                f"All {n} reviews come from only {distinct} address(es) — possible review ring.",
+                "warn", cap=66))
+        elif n >= 4 and distinct / n <= 0.5 and sales < 10:
+            # Larger ring the <=2 rule misses: e.g. 12 reviews from 4 wallets. Only bites
+            # when the agent is LEANING on reviews — a sales-proven agent (real settled
+            # volume) earns trust from sales, so concentrated reviews there are benign, not
+            # collusion (regression: OKX's own Explorer #2023 with 832 sales must stay SAFE).
+            signals.append(Signal("review_concentration", -8,
+                f"{n} reviews from only {distinct} distinct address(es), with little "
+                f"settled sales — reputation concentrated in few hands, possible collusion.",
                 "warn", cap=66))
 
     # ---- Newly-registered-domain risk (cheap, high-signal pre-tx check) ----
