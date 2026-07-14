@@ -24,9 +24,10 @@ Repo state as of 2026-07-14 (branch `main`).
 - [x] **Submission kit refreshed**: README + V2-RESUBMIT carry the 371-agent proof and 103 tests.
 
 ## ⚠️ Decisions (need a human)
-- [ ] **Rotate `ORACLE_SIGNING_KEY`** (and the OKX API creds). The signing key is KYA's trust
-      root and was exposed in plaintext during this session; anyone with it can forge SAFE
-      verdicts. Cheap to rotate (`os.urandom(32).hex()`), no external consumer pins it pre-listing.
+- [x] **`ORACLE_SIGNING_KEY` ROTATED** (done). Old leaked key (`fabe730d…`) neutralized; live
+      pubkey now `2fbb9b67…`; 363 agents re-swept so stored verdicts re-sign under the new key.
+      OKX API creds also rotated by Oscar. (Note: enumeration variance means a few stored
+      verdicts may still hold old-key sigs; live `/verify` always re-signs fresh, no exposure.)
 - [ ] **Set a light recurring re-sweep** (freshness): `seed_all.py` on a cron keeps verdicts
       current and populates `/changes` with real transitions over time. Optional, strengthens
       the "always-fresh timeline" story.
