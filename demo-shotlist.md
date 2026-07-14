@@ -16,9 +16,13 @@ Then type: `bash scripts/demo.sh`
 
 **0:12-0:38 - the live spread** (demo.sh [LIVE] THE SPREAD section)
 On screen: Otto SAFE 100, Explorer SAFE, Scope + WhalePulse CAUTION, Sentiment Oracle BLOCK,
-each with "✓ live verdict matches" and an ed25519 signature.
+each with "✓ live verdict matches", a **MAX SAFE $X** line, and an ed25519 signature.
 > "These are real OKX agents, judged live. Otto is proven, safe. Sentiment Oracle looks listed
 >  and online, but KYA probed its endpoints and they're dead. Blocked. Every verdict is signed."
+> "And look at this line - MAX SAFE. KYA doesn't just say safe or not, it tells you the max
+>  dollar amount you should pay each agent, earned from its real settled volume. The dead one
+>  gets zero. A proven agent gets a real number. A star rating gives everyone five stars;
+>  KYA prices trust in dollars." (point at Otto $0.66 vs Sentiment Oracle $0)
 
 **0:38-0:58 - KYA in the payment loop** (demo.sh [LIVE] KYA IN THE LOOP section)
 On screen: the caller pays Otto, pays Explorer, then REFUSE on Sentiment Oracle, signatures VALID.

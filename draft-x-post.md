@@ -1,18 +1,23 @@
 # X post (#OKXAI) - FINAL
 
 Post in a morning slot (Tue-Thu, 8-10am Paris), video attached, the day you record.
-Glance at /watchtower right before posting and update the three numbers if they shifted
-(they drift a little each sweep). As of Jul 14: 374 on the board, 16 SAFE, 23 BLOCK.
+Glance at /watchtower right before posting for the current counts (they shift each sweep;
+V2 pushed several agents SAFE as false positives were fixed).
 
-## THE TWEET (locked)
+## THE TWEET (locked) — the priced-trust hook (v2)
 
-> I trust-checked all 374 agents on OKX's marketplace.
+> I trust-checked every agent on OKX's marketplace.
 >
-> 16 passed. 23 I'd block before sending a cent.
+> Then I made it price them: the max dollars you should pay each one, earned from real settled volume. The dead ones get $0. The proven ones get a real number.
 >
-> No star ratings. It reads settled on-chain volume, probes every endpoint live, scans for malicious hosts and poisoned tools, and audits who actually left the reviews. Every verdict is signed, and re-checked the moment an agent changes.
+> A star rating gives everyone five stars. KYA gives you a signed dollar limit, before you pay.
+> #OKXAI
+
+## Alt — the finding hook (v1, still strong)
+
+> I trust-checked every listed agent on OKX. Only a handful passed; a couple dozen I'd block before sending a cent.
 >
-> Nobody vets the agents themselves. So I built the thing that does.
+> No star ratings - settled on-chain volume, live endpoint probes, malicious-host + tool-poisoning scans, signed. Nobody vets the agents. So I built the thing that does.
 > #OKXAI
 
 The middle paragraph is the "how" - it shows the method (and the effort) without bragging.
