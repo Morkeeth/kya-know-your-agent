@@ -79,7 +79,8 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
                 agent_id: str | None = None, *, malicious_hosts: list[str] | None = None,
                 feedback: dict | None = None, owner_addrs: list[str] | None = None,
                 history: dict | None = None, identity: dict | None = None,
-                settlement: dict | None = None, content: list[dict] | None = None) -> Verdict:
+                settlement: dict | None = None, content: list[dict] | None = None,
+                domain_intel: dict | None = None) -> Verdict:
     """
     agent_info    : the `agentInfo` from `onchainos agent service-list` (may be None).
     services      : the `list` array (each has endpoint, fee, serviceType, ...).
@@ -328,6 +329,20 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
             signals.append(Signal("review_ring", -12,
                 f"All {len(reviewers)} reviews come from only {distinct} address(es) — possible review ring.",
                 "warn", cap=66))
+
+    # ---- Newly-registered-domain risk (cheap, high-signal pre-tx check) ----
+    # ~78% of phishing domains are <30 days old. A young domain is NOT auto-BLOCK
+    # (legit new agents exist), it just can't earn SAFE outright — clamp to CAUTION.
+    if domain_intel and domain_intel.get("age_days") is not None:
+        age = domain_intel["age_days"]
+        if age < 7:
+            signals.append(Signal("domain_age", -10,
+                f"Endpoint domain registered {age}d ago — brand-new domain (top phishing signal).",
+                "warn", cap=55))
+        elif age < 30:
+            signals.append(Signal("domain_age", -6,
+                f"Endpoint domain registered {age}d ago — newly-registered-domain risk.",
+                "warn", cap=64))
 
     # ---- Anomaly detection (what a raw star-rating won't tell you) ----
     if sec_rate is not None and sec_rate >= 4.5 and sales == 0:

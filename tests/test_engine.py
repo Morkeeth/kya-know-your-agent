@@ -155,6 +155,34 @@ def test_malicious_endpoint_forces_block_even_if_proven():
     assert v.verdict == BLOCK
 
 
+# ------------------------------------------------ newly-registered-domain risk
+def test_new_domain_caps_at_caution_not_block():
+    """A <30d endpoint domain can't earn SAFE outright (phishing prior) but is NOT
+    auto-blocked - a proven agent on a young domain lands CAUTION, not BLOCK/SAFE."""
+    ep = "https://svc.example.com/api"
+    assert score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep)).verdict == SAFE
+    young = score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep),
+                        domain_intel={"domain": "example.com", "age_days": 5, "source": "rdap"})
+    assert young.verdict == CAUTION
+    assert any(s["key"] == "domain_age" for s in young.signals)
+
+
+def test_old_domain_no_penalty():
+    ep = "https://svc.example.com/api"
+    old = score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep),
+                      domain_intel={"domain": "example.com", "age_days": 800, "source": "rdap"})
+    assert old.verdict == SAFE
+    assert not any(s["key"] == "domain_age" for s in old.signals)
+
+
+def test_domain_intel_absent_is_neutral():
+    ep = "https://svc.example.com/api"
+    base = score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep))
+    withn = score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep),
+                        domain_intel={"domain": "example.com", "age_days": None, "source": None})
+    assert base.verdict == withn.verdict == SAFE and base.score == withn.score
+
+
 # ------------------------------------------------ A2: reviewer-integrity audit
 def test_self_review_is_not_safe():
     """A review coming from the agent's own wallet = self-dealt reputation -> not SAFE."""

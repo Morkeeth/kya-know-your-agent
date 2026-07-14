@@ -298,6 +298,100 @@ def fetch_identity(agent_id: str, agent_info: dict | None, services: list[dict])
 
 _UA = "Mozilla/5.0 (compatible; OracleTrustProbe/0.2; +https://okx.ai)"
 
+# Registrable-domain heuristic: take eTLD+1. A short allow-list of common multi-label
+# public suffixes so we don't stop at the TLD (barker.money, not money; a.co.uk -> a.co.uk).
+_MULTI_TLD = {"co.uk", "org.uk", "gov.uk", "ac.uk", "com.au", "co.jp", "com.br", "co.in"}
+
+
+def _registrable_domain(host: str) -> str | None:
+    """host -> eTLD+1 (mcp.barker.money -> barker.money). None for IPs / bare hosts."""
+    host = (host or "").strip().lower().rstrip(".")
+    if not host:
+        return None
+    try:
+        ipaddress.ip_address(host)
+        return None            # an IP literal has no registrable domain
+    except ValueError:
+        pass
+    parts = host.split(".")
+    if len(parts) < 2:
+        return None
+    last2 = ".".join(parts[-2:])
+    if last2 in _MULTI_TLD and len(parts) >= 3:
+        return ".".join(parts[-3:])
+    return last2
+
+
+def _days_since(iso: str) -> int | None:
+    """Whole days from an ISO-8601-ish date string to now (UTC). Tolerant of shapes."""
+    from datetime import datetime, timezone
+    if not iso:
+        return None
+    s = str(iso).strip().replace("Z", "+00:00")
+    dt = None
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        try:
+            dt = datetime.strptime(str(iso)[:10], "%Y-%m-%d")
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return max(0, (datetime.now(timezone.utc) - dt).days)
+
+
+def _rdap_age_days(domain: str) -> int | None:
+    """Domain registration age via RDAP (rdap.org bootstraps to the right registry)."""
+    try:
+        r = httpx.get(f"https://rdap.org/domain/{domain}", timeout=_PROBE_TIMEOUT,
+                      follow_redirects=True, headers={"User-Agent": _UA})
+        if r.status_code != 200:
+            return None
+        for ev in (r.json().get("events") or []):
+            if ev.get("eventAction") == "registration" and ev.get("eventDate"):
+                return _days_since(ev["eventDate"])
+    except (httpx.HTTPError, ValueError, KeyError):
+        return None
+    return None
+
+
+def _ct_first_seen_days(domain: str) -> int | None:
+    """Fallback when RDAP hides the date: earliest Certificate-Transparency cert seen."""
+    try:
+        r = httpx.get("https://crt.sh/", params={"q": domain, "output": "json"},
+                      timeout=_PROBE_TIMEOUT, headers={"User-Agent": _UA})
+        if r.status_code != 200:
+            return None
+        dates = [row.get("not_before") for row in (r.json() or []) if row.get("not_before")]
+        if not dates:
+            return None
+        return _days_since(min(dates))
+    except (httpx.HTTPError, ValueError, KeyError):
+        return None
+    return None
+
+
+def fetch_domain_intel(services: list[dict]) -> dict:
+    """Newly-registered-domain signal for the primary endpoint. ~78% of phishing domains
+    are <30 days old, so domain age is one of the cheapest high-signal pre-tx checks.
+    RDAP registration date first, Certificate-Transparency first-seen as fallback.
+    Best-effort: never raises, returns {} or {domain, age_days, source}."""
+    eps = [s.get("endpoint") for s in services if s.get("endpoint")]
+    if not eps:
+        return {}
+    try:
+        host = httpx.URL(eps[0]).host
+    except Exception:  # noqa: BLE001
+        return {}
+    dom = _registrable_domain(host)
+    if not dom:
+        return {}
+    age, src = _rdap_age_days(dom), "rdap"
+    if age is None:
+        age, src = _ct_first_seen_days(dom), "ct"
+    return {"domain": dom, "age_days": age, "source": src if age is not None else None}
+
 
 def probe_endpoints(services: list[dict]) -> dict[str, dict]:
     """
