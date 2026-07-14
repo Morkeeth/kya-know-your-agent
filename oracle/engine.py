@@ -51,6 +51,7 @@ class Verdict:
     verdict: str
     score: int
     confidence: int = 0            # 0..100 — how much evidence we actually had
+    max_safe_usd: float = 0.0      # priced trust: max single-tx USD to extend (0 = do not pay)
     reasons: list[str] = field(default_factory=list)
     signals: list[dict] = field(default_factory=list)
     evidence: dict = field(default_factory=dict)
@@ -63,7 +64,8 @@ class Verdict:
         """The stable payload that identifies this verdict — signed by the service."""
         return json.dumps(
             {"agent_id": self.agent_id, "verdict": self.verdict,
-             "score": self.score, "confidence": self.confidence},
+             "score": self.score, "confidence": self.confidence,
+             "max_safe_usd": self.max_safe_usd},
             sort_keys=True, separators=(",", ":"),
         )
 
@@ -390,6 +392,7 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     ceiling = min(caps) if caps else 100
     score = max(0, min(100, min(raw, ceiling)))
     verdict = SAFE if score >= 70 else CAUTION if score >= 45 else BLOCK
+    max_safe = _safe_ceiling(verdict, confidence, volume)
 
     reasons = _headline_reasons(signals, score, ceiling)
     evidence = {
@@ -404,10 +407,26 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     }
 
     v = Verdict(agent_id=aid, name=name, verdict=verdict, score=score,
-                confidence=confidence, reasons=reasons,
+                confidence=confidence, max_safe_usd=max_safe, reasons=reasons,
                 signals=[asdict(s) for s in signals], evidence=evidence)
     v.digest = _digest(v)
     return v
+
+
+def _safe_ceiling(verdict: str, confidence: int, volume: float) -> float:
+    """Priced trust: the max single-transaction USD amount KYA would extend to this agent,
+    sized to its PROVEN settled volume — earned, never invented (feedback_no_fake_data).
+
+    BLOCK -> 0 (never pay). SAFE extends up to a small multiple of proven volume; CAUTION
+    only trivial amounts. It is sub-cent for a sub-cent-proven agent BY DESIGN — the number
+    is earned and grows as the agent settles real volume. Everyone else returns a score;
+    KYA returns a dollar ceiling.
+    """
+    if verdict == BLOCK or volume <= 0:
+        return 0.0
+    conf = max(0.0, min(1.0, confidence / 100.0))
+    mult = 3.0 if verdict == SAFE else 0.5   # CAUTION = trivial amounts only, until proven
+    return round(volume * mult * conf, 4)
 
 
 def _confidence(agent_info: dict, services: list[dict], endpoints: list) -> int:

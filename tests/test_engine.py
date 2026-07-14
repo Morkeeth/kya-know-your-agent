@@ -155,6 +155,24 @@ def test_malicious_endpoint_forces_block_even_if_proven():
     assert v.verdict == BLOCK
 
 
+# ------------------------------------------------ priced trust (max_safe_usd)
+def test_max_safe_usd_earned_from_volume():
+    """The dollar ceiling: BLOCK -> $0, unproven -> $0, a proven SAFE agent -> a positive
+    amount scaled to its settled volume. Earned, never invented, and signed (in the digest)."""
+    ep = "https://svc.example.com/api"
+    blocked = score_agent(_asp(salesCount=500), _svc(ep), _down(ep))
+    assert blocked.verdict == BLOCK and blocked.max_safe_usd == 0.0
+    unproven = score_agent(_asp(salesCount=0), _svc(ep, "0.10"), _healthy(ep))
+    assert unproven.max_safe_usd == 0.0                      # 0 sales -> 0 volume -> $0
+    proven = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep))
+    assert proven.verdict == SAFE and proven.max_safe_usd > 0
+    # bigger proven volume -> bigger ceiling (monotonic in earned volume)
+    bigger = score_agent(_asp(salesCount=900), _svc(ep, "0.10"), _healthy(ep))
+    assert bigger.max_safe_usd > proven.max_safe_usd
+    # the ceiling is inside the SIGNED payload (tamper-proof)
+    assert "max_safe_usd" in proven.canonical_core()
+
+
 # ------------------------------------------------ newly-registered-domain risk
 def test_new_domain_caps_at_caution_not_block():
     """A <30d endpoint domain can't earn SAFE outright (phishing prior) but is NOT
