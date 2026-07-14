@@ -106,6 +106,24 @@ def test_registration_ids_shapes():
     assert _registration_ids({}) == set()
 
 
+def test_registration_ids_skip_cross_registry():
+    """Cross-registry (foreign agentRegistry) ids are NOT comparable to an OKX id, so
+    they must be excluded — else a legit cross-registry agent is falsely accused of
+    endpoint-borrowing. Regression for Barker Yield Agent (OKX #2012 / ERC-8004 #52838):
+    verifying OKX #2012, its .well-known names #52838@Base -> no comparable id -> the
+    engine keeps domain_binding 'absent' (neutral), not a -45 impersonation BLOCK."""
+    reg = {"registrations": [{"agentId": 52838,
+                              "agentRegistry": "eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"}]}
+    assert _registration_ids(reg) == set()
+    # A bare agentId (same, implied namespace) is STILL compared -> a same-namespace
+    # impostor surfaces as a different id upstream -> mismatch. FN-averse: sharks still bite.
+    assert _registration_ids({"registrations": [{"agentId": "9999"}]}) == {"9999"}
+    # Mixed: keep the comparable one, drop the cross-registry one.
+    mixed = {"registrations": [{"agentId": "2118"},
+                               {"agentId": 52838, "agentRegistry": "eip155:8453:0xdead"}]}
+    assert _registration_ids(mixed) == {"2118"}
+
+
 def test_x402_paytos_shapes():
     body = {"accepts": [{"scheme": "exact", "payTo": "0xABC"}, {"payTo": "0xdef"}]}
     assert _x402_paytos(body) == {"0xabc", "0xdef"}                     # lower-cased

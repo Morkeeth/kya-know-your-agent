@@ -208,8 +208,18 @@ def guard_url(url: str) -> None:
 
 
 def _registration_ids(reg: dict) -> set[str]:
-    """Pull the agentId(s) an ERC-8004 .well-known/agent-registration.json claims.
-    Tolerant of a few shapes: {registrations:[{agentId}]}, {agentId}, {agents:[...]}."""
+    """Pull the agentId(s) an ERC-8004 .well-known/agent-registration.json claims,
+    RESTRICTED to the caller's own id-namespace.
+
+    An entry qualified with a foreign `agentRegistry` (a different ERC-8004 registry /
+    chain) names an id in THAT registry's space and is NOT numerically comparable to an
+    OKX marketplace id. Comparing across namespaces turns a legitimate cross-registry
+    agent into a false impersonation hit — e.g. Barker Yield Agent is OKX #2012 but its
+    .well-known correctly names its Base ERC-8004 id #52838; the raw numbers differ, yet
+    there is no borrowing. Dolphins vs sharks: only compare WITHIN a namespace. Cross-
+    registry is 'not comparable' (→ neutral upstream), never 'guilty'. A same-namespace
+    impostor (a bare agentId that isn't ours) is still caught → mismatch.
+    Tolerant of shapes: {registrations:[{agentId, agentRegistry?}]}, {agentId}, {agents:[...]}."""
     ids: set[str] = set()
 
     def _add(v):
@@ -221,7 +231,7 @@ def _registration_ids(reg: dict) -> set[str]:
     _add(reg.get("agentId"))
     for key in ("registrations", "agents"):
         for item in (reg.get(key) or []):
-            if isinstance(item, dict):
+            if isinstance(item, dict) and not str(item.get("agentRegistry") or "").strip():
                 _add(item.get("agentId"))
     return {i for i in ids if i}
 
