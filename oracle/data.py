@@ -496,6 +496,21 @@ def _probe_one(url: str) -> dict:
         except httpx.HTTPError:
             down_kind = "refused"
             continue
+        # Follow ONE same-host redirect (e.g. a locale path /zh/x402/...). Blanket redirect-
+        # following is unsafe (SSRF), but a redirect to the SAME host is safe to chase and is
+        # where the real 402/api often lives (regression: RitMEX #2652 307 -> /zh/x402/ ->
+        # valid 402). Off-host redirects are left alone so they still classify as 'offhost'.
+        if 300 <= r.status_code < 400:
+            loc = r.headers.get("location", "")
+            dest = str(httpx.URL(url).join(loc)) if loc else ""
+            if dest and _same_host(url, dest):
+                try:
+                    guard_url(dest)
+                    r = httpx.request(method, dest, timeout=_PROBE_TIMEOUT,
+                                      follow_redirects=False, headers={"User-Agent": _UA},
+                                      json={} if method == "POST" else None)
+                except (httpx.HTTPError, BlockedTarget):
+                    pass  # keep the original redirect response (-> classifies as broken)
         elapsed = int((time.perf_counter() - t0) * 1000)
         cat = _classify(url, r)
         if best_cat is None or _RANK[cat] < _RANK[best_cat]:
