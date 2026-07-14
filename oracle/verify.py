@@ -10,7 +10,7 @@ from __future__ import annotations
 from . import store, settlement as _settlement
 from .content import scan_injection, gather_texts
 from .data import (fetch_agent, probe_endpoints, scan_malicious, fetch_feedback,
-                   fetch_identity)
+                   fetch_identity, fetch_domain_intel)
 from .engine import score_agent, Verdict
 
 
@@ -20,6 +20,7 @@ def assess(agent_id: str, *, persist: bool = True) -> Verdict:
     malicious = scan_malicious(services)
     feedback = fetch_feedback(agent_id)
     identity = fetch_identity(agent_id, info, services)
+    domain_intel = fetch_domain_intel(services)
     content = scan_injection(gather_texts(info, services))
     owner = [str(info.get("ownerAddress") or "").lower(),
              str(info.get("agentWalletAddress") or "").lower()]
@@ -32,7 +33,8 @@ def assess(agent_id: str, *, persist: bool = True) -> Verdict:
 
     v = score_agent(info, services, probes, agent_id=agent_id,
                     malicious_hosts=malicious, feedback=feedback, owner_addrs=owner,
-                    history=hist, identity=identity, settlement=settle, content=content)
+                    history=hist, identity=identity, settlement=settle, content=content,
+                    domain_intel=domain_intel)
 
     if persist:
         sh = store.state_hash(info, services, feedback)

@@ -124,6 +124,26 @@ def test_registration_ids_skip_cross_registry():
     assert _registration_ids(mixed) == {"2118"}
 
 
+# -------------------------------------------- newly-registered-domain parsing
+from oracle.data import _registrable_domain, _days_since  # noqa: E402
+
+
+def test_registrable_domain():
+    assert _registrable_domain("mcp.barker.money") == "barker.money"
+    assert _registrable_domain("okx.57tool.com") == "57tool.com"
+    assert _registrable_domain("a.b.co.uk") == "b.co.uk"          # multi-label suffix
+    assert _registrable_domain("example.com") == "example.com"
+    assert _registrable_domain("1.2.3.4") is None                 # IP literal
+    assert _registrable_domain("localhost") is None               # bare host
+
+
+def test_days_since():
+    assert _days_since("1970-01-01T00:00:00Z") > 20000            # ~55 years of days
+    assert _days_since("2020-06-15") > 2000
+    assert _days_since("not-a-date") is None
+    assert _days_since("") is None
+
+
 def test_x402_paytos_shapes():
     body = {"accepts": [{"scheme": "exact", "payTo": "0xABC"}, {"payTo": "0xdef"}]}
     assert _x402_paytos(body) == {"0xabc", "0xdef"}                     # lower-cased

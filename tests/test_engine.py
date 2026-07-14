@@ -155,6 +155,52 @@ def test_malicious_endpoint_forces_block_even_if_proven():
     assert v.verdict == BLOCK
 
 
+# ------------------------------------------------ priced trust (max_safe_usd)
+def test_max_safe_usd_earned_from_volume():
+    """The dollar ceiling: BLOCK -> $0, unproven -> $0, a proven SAFE agent -> a positive
+    amount scaled to its settled volume. Earned, never invented, and signed (in the digest)."""
+    ep = "https://svc.example.com/api"
+    blocked = score_agent(_asp(salesCount=500), _svc(ep), _down(ep))
+    assert blocked.verdict == BLOCK and blocked.max_safe_usd == 0.0
+    unproven = score_agent(_asp(salesCount=0), _svc(ep, "0.10"), _healthy(ep))
+    assert unproven.max_safe_usd == 0.0                      # 0 sales -> 0 volume -> $0
+    proven = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep))
+    assert proven.verdict == SAFE and proven.max_safe_usd > 0
+    # bigger proven volume -> bigger ceiling (monotonic in earned volume)
+    bigger = score_agent(_asp(salesCount=900), _svc(ep, "0.10"), _healthy(ep))
+    assert bigger.max_safe_usd > proven.max_safe_usd
+    # the ceiling is inside the SIGNED payload (tamper-proof)
+    assert "max_safe_usd" in proven.canonical_core()
+
+
+# ------------------------------------------------ newly-registered-domain risk
+def test_new_domain_caps_at_caution_not_block():
+    """A <30d endpoint domain can't earn SAFE outright (phishing prior) but is NOT
+    auto-blocked - a proven agent on a young domain lands CAUTION, not BLOCK/SAFE."""
+    ep = "https://svc.example.com/api"
+    assert score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep)).verdict == SAFE
+    young = score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep),
+                        domain_intel={"domain": "example.com", "age_days": 5, "source": "rdap"})
+    assert young.verdict == CAUTION
+    assert any(s["key"] == "domain_age" for s in young.signals)
+
+
+def test_old_domain_no_penalty():
+    ep = "https://svc.example.com/api"
+    old = score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep),
+                      domain_intel={"domain": "example.com", "age_days": 800, "source": "rdap"})
+    assert old.verdict == SAFE
+    assert not any(s["key"] == "domain_age" for s in old.signals)
+
+
+def test_domain_intel_absent_is_neutral():
+    ep = "https://svc.example.com/api"
+    base = score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep))
+    withn = score_agent(_asp(salesCount=300), _svc(ep), _healthy(ep),
+                        domain_intel={"domain": "example.com", "age_days": None, "source": None})
+    assert base.verdict == withn.verdict == SAFE and base.score == withn.score
+
+
 # ------------------------------------------------ A2: reviewer-integrity audit
 def test_self_review_is_not_safe():
     """A review coming from the agent's own wallet = self-dealt reputation -> not SAFE."""
@@ -173,6 +219,30 @@ def test_review_ring_caps_at_caution():
                     feedback={"reviewers": ["0x1", "0x1", "0x1", "0x2"], "count": 4},
                     owner_addrs=["0xowner"])
     assert v.verdict == CAUTION
+
+
+def test_review_concentration_caps_larger_ring_when_unproven():
+    """The gap the <=2 rule missed: 12 reviews from 4 wallets on a NOT-sales-proven agent
+    (leaning on reviews) caps at CAUTION."""
+    ep = "https://svc.example.com/api"
+    reviewers = (["0x1"] * 5 + ["0x2"] * 4 + ["0x3"] * 2 + ["0x4"])  # 12 reviews, 4 distinct
+    v = score_agent(_asp(salesCount=2), _svc(ep, "0.10"), _healthy(ep),
+                    feedback={"reviewers": reviewers, "count": len(reviewers)},
+                    owner_addrs=["0xowner"])
+    assert v.verdict == CAUTION
+    assert any(s["key"] == "review_concentration" for s in v.signals)
+
+
+def test_concentration_does_not_punish_sales_proven_agent():
+    """Regression: a sales-proven agent (like OKX's own Explorer #2023, 800+ sales) with
+    concentrated reviews earns trust from SALES, not reviews - concentration must NOT bite."""
+    ep = "https://svc.example.com/api"
+    reviewers = (["0x1"] * 5 + ["0x2"] * 4 + ["0x3"] * 2 + ["0x4"])
+    v = score_agent(_asp(salesCount=832), _svc(ep, "0.10"), _healthy(ep),
+                    feedback={"reviewers": reviewers, "count": len(reviewers)},
+                    owner_addrs=["0xowner"])
+    assert v.verdict == SAFE
+    assert not any(s["key"] == "review_concentration" for s in v.signals)
 
 
 def test_diverse_reviews_do_not_penalize():
