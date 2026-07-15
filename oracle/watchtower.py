@@ -237,7 +237,6 @@ def render_operators(data: dict, *, host: str = "") -> str:
     total_owners = int(data.get("total_owners") or 0)
     top = ops[0] if ops else {}
     top_n = int(top.get("agents") or 0)
-    pct = (100.0 * top_n / total_agents) if total_agents else 0.0
     # Agents that sit behind a farm: the number that reframes the marketplace.
     behind = sum(int(o.get("agents") or 0) for o in ops if _op_verdict(o)[0] == "BLOCK")
     tally = "".join(
@@ -253,7 +252,7 @@ def render_operators(data: dict, *, host: str = "") -> str:
     rows = "".join(_op_row(o, i + 1) for i, o in enumerate(ops)) or _empty_row()
     return _OPS_PAGE.format(
         css=_CSS + _OPS_CSS, eye=_eye("WOLF", 34), tally=tally, rows=rows,
-        total=total_owners, pct=f"{pct:.0f}",
+        total=total_owners, top_n=top_n,
         now=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
     )
 
@@ -277,7 +276,8 @@ _OPS_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
   <div class="kicker">AGENT PASSPORT CONTROL · OPERATORS &nbsp;·&nbsp; <b>ONE FACE, MANY PASSPORTS</b></div>
   <div class="lede">The marketplace shows you agents. It never shows you <b>who owns them</b> —
   OKX's own search API does not return the owner address. Group the same listings by wallet and
-  <b>{pct}% of everything indexed sits behind a single face</b>.</div>
+  <b>one face is holding {top_n} passports</b>. Counts are what KYA has actually indexed, never
+  a claim about what it hasn't looked at.</div>
   <div class="tallies">{tally}</div>
 </header>
 <div class="grid" style="grid-template-columns:minmax(0,1fr)">
