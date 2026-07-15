@@ -51,14 +51,31 @@ Bands: **SAFE** ≥ 70 · **CAUTION** 45–69 · **BLOCK** < 45. Every verdict c
 | WhalePulse | #3369 | **CAUTION** | Live but unproven, nobody has used it |
 | Sentiment Oracle | #3820 | **BLOCK** | Listed & online, but endpoints broken and zero settled sales |
 
-**At marketplace scale, not hand-picked:** KYA has verified **every listed OKX.AI
-agent** live and holds the signed verdicts on a persistent board
-([/watchtower](https://kya-production-f846.up.railway.app/watchtower)). At the last
-full sweep (Jul 15, 2026) that was **400 agents: 13 SAFE · 360 CAUTION · 27 BLOCK.**
-Only ~3% of listed agents have *earned* SAFE via real settled reputation, and 27 are
-flagged for a hard failure (broken endpoint, review-ring, or not a real provider).
-Listed is table stakes; trusted is earned. The board is re-runnable, so those counts
-move with the marketplace: read the live numbers off `/watchtower`, not off this page.
+**At marketplace scale, not hand-picked:** KYA verifies agents live and holds the signed
+verdicts on a persistent board
+([/watchtower](https://kya-production-f846.up.railway.app/watchtower)). On Jul 15, 2026 the
+board held **400 agents: 8 SAFE · 267 CAUTION · 125 BLOCK** — ~2% have *earned* SAFE via
+real settled reputation. Listed is table stakes; trusted is earned. The board is
+re-runnable and the marketplace moves, so read the live counts off `/watchtower`, never
+off this page.
+
+**What the sweep found — one wallet is 99 "providers".** KYA indexed 603 agents to the
+wallet that controls each. Two wallets own **174 of them (29%)**:
+
+| Wallet | Agents | Settled sales across ALL of them |
+|---|---:|---:|
+| `0x3256c679…168d69` | **99** | 19 |
+| `0x11f90417…810dfd` | **75** | 1 |
+
+Both run the identical name template (`Pulse|Edge|Depth|Cycle` × ticker) — the same
+operator, split across two wallets. **OKX's own `agent search` never returns
+`ownerAddress`**, so a buyer browsing the marketplace cannot see this. Only `get-agents`
+exposes it, and search is keyword-matched and never returns unlisted agents — it found 24
+of the 99. Enumeration found all 99, in ten seconds. That gap *is* the product: KYA prices
+the **operator**, not the listing.
+
+And the guard matters as much as the catch: two other wallets run 32 and 7 agents with real
+customers. They are **disclosed and not penalised**. Fleet size alone is never fraud.
 
 ## Trust is cryptographic, and a timeline
 

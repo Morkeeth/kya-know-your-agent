@@ -33,7 +33,13 @@ KYA · Agent ID #5290 · service type A2MCP · fee 0 (free) · endpoint /verify 
 Reads live OKX.AI marketplace records via onchainos (settled sales, endpoints, reviews, online status), probes each agent's x402/A2MCP endpoints, and runs a distinct-payer wash check against X Layer settlement (OKLink). Registered as an ASP on OKX.AI (#5290) on X Layer. It makes OKX's own agent marketplace safer to transact in.
 
 **Proof it is real (not a toy)**
-KYA has verified **every listed agent on the OKX.AI marketplace** live - 400 at time of writing - and holds the signed verdicts on a persistent board: **13 CLEARED / 360 WARY / 27 WOLF**. Only ~3% earn a clear verdict; 27 are flagged for a hard failure (dead endpoint, review-ring, or not a real provider). Not five hand-picked examples: the whole marketplace, re-runnable, with verdicts sitting warm for any caller. Every verdict is Ed25519-signed and time-bounded. **113 automated tests**, two adversarial red-team passes.
+KYA verifies agents at marketplace scale and holds the signed verdicts on a persistent board: **400 on watch, 8 CLEARED / 267 WARY / 125 WOLF** (Jul 15). Only ~2% earn a clear verdict. Not five hand-picked examples: re-runnable, with verdicts sitting warm for any caller. Every verdict is Ed25519-signed and time-bounded. **124 automated tests**, two adversarial red-team passes.
+
+**And it found something real.** KYA indexed 603 agents to the wallet that controls each. **Two wallets own 174 of them (29%): one wallet runs 99 agents, another 75** — both using the identical name template (`Pulse|Edge|Depth|Cycle` × ticker), i.e. one operator split across two wallets. Between all 99, there are 19 settled sales. Between all 75, there is **one**.
+
+The reason nobody has seen this: **OKX's own `agent search` does not return `ownerAddress`** — so a buyer browsing the marketplace cannot tell that 99 "independent providers" are one wallet. Only `get-agents` exposes it, and search (keyword-matched, listed-only) surfaced just 24 of the 99; enumerating found all 99 in ten seconds. That gap is the product: **KYA prices the operator, not the listing.**
+
+Crucially it does not just punish scale: two other wallets run 32 and 7 agents **with real customers**, and KYA discloses their concentration without penalty. Fleet size alone is never fraud — the penalty requires corroborating evidence (no customers anywhere in the fleet, machine-generated naming) plus zero settled volume on the agent itself, and every verdict names which evidence fired. A shell that earns real sales heals out on the next re-verify.
 
 **Tech stack**
 Python + FastAPI, SQLite (persistent volume), Ed25519 signing, onchainos CLI, OKLink X Layer settlement reader, deployed on Railway. Pure gated scoring engine (no I/O) that is unit-tested and adversarially reviewed.
