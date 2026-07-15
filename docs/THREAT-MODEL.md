@@ -42,7 +42,16 @@ Real, mostly cheap improvements the literature says matter and KYA does not do y
 1. ~~**Domain age (RDAP) + Certificate-Transparency first-seen**~~ — **SHIPPED in V2** (`data.fetch_domain_intel` → `engine` `domain_age` signal). This line said "Not in KYA. Top fast-follow." for a full version after it landed. Corrected Jul 15.
 2. **Full reviewer-graph collusion detection** (FRAUDAR-style bipartite, camouflage-resistant) - KYA does self-review/single-ring only.
 3. **Time-decay on stored reputation** - defense against the good-then-bad "sleeper flip" (Reputation Lag Attack). KYA has TTL on verdicts but no decay on accumulated reputation weight.
-4. **Web Bot Auth request signatures (RFC 9421)** - the strongest *live* proof of key+domain control per request. Not checked.
+4. **Web Bot Auth request signatures (RFC 9421)** — **MEASURED, NOT WORTH BUILDING YET (Jul 15).**
+   This line used to say "not checked", implying a gap worth closing. Probed 8 live proven agents
+   (Otto #2118, Explorer #2023, Newsliquid #2135, SignalDesk #4413, WhalePulse #3369, ThreeMeme
+   #2438, DefiMacro #5222, ChainPulse #4404) for `signature` / `signature-input` /
+   `signature-agent` / `accept-signature` / `web-bot-auth`: **ZERO implement any of them.** Not
+   "few" — none. A check that can never fire is not a control, it is decoration.
+   **The reframe that matters more than the build:** this marketplace's identity substrate is
+   **on-chain** (ERC-8004 id + `ownerAddress`), not HTTP. The dollar ceiling should bind to the
+   identity that actually exists, and as of A5 it does — the owner index is that binding. Revisit
+   RFC 9421 when a real counterparty signs a request; until then it is a spec, not a threat.
 5. **Enable the wash gate for real** - needs an OKLink key + the buyer-vs-facilitator `from` verification (WASH-GATE.md). Off until verified against real settlement data (no fake signals).
 6. **Full-surface hash-pinning** for rug-pull defense - extend re-verify-on-change to fingerprint the entire tool/description surface and diff before each transaction.
 
