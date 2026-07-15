@@ -1,43 +1,81 @@
-# X post (#OKXAI) - FINAL
+# X post (#OKXAI) — options, Jul 15
 
-Post in a morning slot (Tue-Thu, 8-10am Paris), video attached, the day you record.
-Glance at /watchtower right before posting for the current counts (they shift each sweep;
-V2 pushed several agents SAFE as false positives were fixed).
+Rules the post has to satisfy: introduce the ASP, explain the use case, carry the demo (≤90s).
+Morning slot, Tue-Thu 8-10am Paris. **Post BEFORE the form** (the form wants the link).
 
-## THE TWEET (locked) — the priced-trust hook (v2)
+Voice constraints applied (from `x-engine/voice.md`): life detail first and never the tech;
+human slop over polish (fragments, lowercase, a trail-off ending); no em dashes; no "it's not X,
+it's Y"; no structured lists; no humble-brag; no obscurity-to-arrival arc; never mention Ledger.
 
-> I trust-checked every agent on OKX's marketplace.
+> **The tension, stated honestly:** THE ONE RULE says never open from the tech, but the hackathon
+> requires the post to introduce the ASP. Options 1 and 3 buy the opening with a life detail.
+> Option 2 breaks the rule deliberately, because the finding is a stranger opening than any life
+> detail I can reach for without shoehorning. Your call which trade you want.
+
+---
+
+## Option 1 — the passport queue (life-first, the rule respected)
+
+> being swedish in paris means i have Opinions about passport queues.
 >
-> Then I made it price them: the max dollars you should pay each one, earned from real settled volume. The dead ones get $0. The proven ones get a real number.
+> so i built one for AI agents. thing checks who you're about to pay, before you pay it.
 >
-> A star rating gives everyone five stars. KYA gives you a signed dollar limit, before you pay.
+> first thing it found: 99 of the "independent providers" on OKX's marketplace are one wallet.
+> same face, 99 passports. 19 sales between all of them.
+>
+> the marketplace can't show you this btw. the search api doesn't hand back the owner address.
+>
+> anyway. KYA.
 > #OKXAI
 
-## Alt — the finding hook (v1, still strong)
+*The life detail IS the product metaphor (KYA is literally passport control), so it isn't a
+bolted-on story. Cap-O "Opinions", the "btw", the trailing "anyway." are the slop.*
 
-> I trust-checked every listed agent on OKX. Only a handful passed; a couple dozen I'd block before sending a cent.
+---
+
+## Option 2 — no runway, straight into the finding
+
+> 99 of the "agents" on OKX's marketplace are one wallet.
 >
-> No star ratings - settled on-chain volume, live endpoint probes, malicious-host + tool-poisoning scans, signed. Nobody vets the agents. So I built the thing that does.
+> same face. 99 passports. 19 sales between all of them. the wallet underneath owns another 75 on
+> the identical naming template.
+>
+> you can't see this from the marketplace. the search api never returns the owner address. so i
+> built the thing that does.
+>
+> KYA. call it before you pay something.
 > #OKXAI
 
-The middle paragraph is the "how" - it shows the method (and the effort) without bragging.
-Each claim is real and in the repo's threat model: settled on-chain volume (wash-resistant,
-not review counts), SSRF-hardened live endpoint probes, malicious-host scan, tool-poisoning
-detection, reviewer-integrity audit, Ed25519-signed verdicts, re-verify-on-change.
+*Breaks the life-first rule on purpose. Shortest, most screenshottable, strongest first five
+words. This is the one if you want it to travel.*
 
-## Shorter fallback (if you want a classic ~280-char post)
+---
 
-> I trust-checked all 374 agents on OKX's marketplace.
+## Option 3 — the deflation (the $0.66)
+
+> spent the day asking my terminals one question. how much money should i actually let an AI agent
+> hold?
 >
-> 16 passed. 23 I'd block before sending a cent.
+> best agent on OKX's entire marketplace has earned sixty six cents of trust. SIXTY SIX CENTS.
 >
-> No star ratings - settled on-chain volume, live endpoint probes, malicious-host and tool-poisoning scans, signed. Nobody vets the agents. So I built the thing that does.
+> also 99 of them are the same guy in different hats.
+>
+> so KYA prices agents in dollars instead of stars. the honest number is usually pocket change and
+> i think that's kind of the whole point
 > #OKXAI
 
-## Hold in reserve (the demo's spoken closing line, too good to bury in the post)
-> A star rating is a claim. I wanted receipts.
+*Funniest and most self-aware. The ALL-CAPS burst and the missing final full stop are the slop.
+Risk: reads as dunking on the host's marketplace while the host is judging you.*
 
-## Voice check
-- Finding first, tool second. The number stops the scroll; the method earns respect; the close lands the point.
-- No "look what I built" energy, no thread. One post + the video.
-- Real data only. Re-verify the 3 numbers against /watchtower before posting.
+---
+
+## Do not say
+- Do NOT publish the marketplace GMV line ("~$1,400 settled total, prize pool is 71x the GDP").
+  True, and an excellent post **for after Jul 17**. Saying it to the host mid-judging is a
+  different move than saying it to the timeline.
+- No thread. One post plus the video.
+- No stats-flexing on test counts or agents-judged. The finding carries it.
+
+## Re-verify before posting
+99 · 75 · 19 sales · $0.66 → check `/operators` and `python cli.py 2118`. If a number moved, say
+the moved number.
