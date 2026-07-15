@@ -180,3 +180,111 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 </div>
 <footer class="foot"><span>EVERY VERDICT ED25519-SIGNED · RE-VERIFIED ON CHANGE</span><span>{now}</span></footer>
 </div></body></html>"""
+
+
+# --------------------------------------------------------------- operators board
+def _stems(names: list[str]) -> list[str]:
+    """Name templates a farm was generated from: PulseBTC/PulseETH -> 'Pulse'."""
+    import re as _re
+    from collections import Counter as _C
+    c: _C = _C()
+    for n in names:
+        s = _re.sub(r"[A-Z0-9]{2,}$", "", (n or "").strip()).strip()
+        if s:
+            c[s] += 1
+    return [k for k, v in c.most_common(4) if v >= 3]
+
+
+def _op_verdict(o: dict) -> tuple[str, str]:
+    """(verdict, label) for an OPERATOR. Same three states as an agent — this is the
+    same passport desk, just looking at the face instead of the document."""
+    agents = int(o.get("agents") or 0)
+    sales = int(o.get("sales") or 0)
+    # A fleet is only called a farm when it shows no real customers AND looks
+    # generated. An operator with genuine sales is a business, not a farm.
+    if agents >= 5 and sales < agents and _stems(o.get("names") or []):
+        return "BLOCK", "ONE FACE"
+    if sales >= agents:
+        return "SAFE", "BUSINESS"
+    return "CAUTION", "THIN"
+
+
+def _op_row(o: dict, rank: int) -> str:
+    owner = o.get("owner") or ""
+    agents = int(o.get("agents") or 0)
+    sales = int(o.get("sales") or 0)
+    verdict, label = _op_verdict(o)
+    c = _ACCENT.get(verdict, _C["red"])
+    stems = _stems(o.get("names") or [])
+    short = html.escape(owner[:10] + "…" + owner[-6:]) if len(owner) > 18 else html.escape(owner)
+    tmpl = html.escape(" · ".join(f"{s}*" for s in stems)) if stems else "—"
+    return (
+        f'<div class="row v-{verdict}">'
+        f'<div class="eye">{_eye(verdict, 22)}</div>'
+        f'<div class="id mono">#{rank}</div>'
+        f'<div class="name mono">{short}</div>'
+        f'<div class="op-tmpl mono">{tmpl}</div>'
+        f'<div class="stamp" style="color:{c};border-color:{c}">{label}</div>'
+        f'<div class="score mono" style="color:{c}">{agents}</div>'
+        f'<div class="seen mono">{sales} sold</div>'
+        f"</div>"
+    )
+
+
+def render_operators(data: dict, *, host: str = "") -> str:
+    ops = data.get("operators") or []
+    total_agents = int(data.get("total_agents") or 0)
+    total_owners = int(data.get("total_owners") or 0)
+    top = ops[0] if ops else {}
+    top_n = int(top.get("agents") or 0)
+    pct = (100.0 * top_n / total_agents) if total_agents else 0.0
+    # Agents that sit behind a farm: the number that reframes the marketplace.
+    behind = sum(int(o.get("agents") or 0) for o in ops if _op_verdict(o)[0] == "BLOCK")
+    tally = "".join(
+        f'<div class="tally"><div class="tnum mono" style="color:{col}">{val}</div>'
+        f'<div class="tlab">{lab}</div></div>'
+        for val, lab, col in [
+            (total_agents, "AGENTS INDEXED", _C["ink"]),
+            (total_owners, "ACTUAL OPERATORS", _C["ink"]),
+            (top_n, "BEHIND ONE WALLET", _C["red"]),
+            (behind, "AGENTS THAT ARE SHELLS", _C["red"]),
+        ]
+    )
+    rows = "".join(_op_row(o, i + 1) for i, o in enumerate(ops)) or _empty_row()
+    return _OPS_PAGE.format(
+        css=_CSS + _OPS_CSS, eye=_eye("WOLF", 34), tally=tally, rows=rows,
+        total=total_owners, pct=f"{pct:.0f}",
+        now=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
+    )
+
+
+_OPS_CSS = """
+.row{grid-template-columns:26px 44px minmax(0,1fr) minmax(0,1.1fr) auto 58px 74px}
+.op-tmpl{font-size:11px;color:#8A8A8E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lede{font-size:15px;color:#C9C9CD;margin:18px 0 4px;line-height:1.55}
+.lede b{color:#D9F94C;font-weight:400}
+@media(max-width:520px){
+  .row{grid-template-columns:22px minmax(0,1fr) auto 46px;gap:10px}
+  .op-tmpl,.seen,.id{display:none}
+}
+"""
+
+_OPS_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KYA · Operators</title><style>{css}</style></head><body><div class="wrap">
+<header class="top">
+  <div class="brand">{eye}<h1>KYA</h1></div>
+  <div class="kicker">AGENT PASSPORT CONTROL · OPERATORS &nbsp;·&nbsp; <b>ONE FACE, MANY PASSPORTS</b></div>
+  <div class="lede">The marketplace shows you agents. It never shows you <b>who owns them</b> —
+  OKX's own search API does not return the owner address. Group the same listings by wallet and
+  <b>{pct}% of everything indexed sits behind a single face</b>.</div>
+  <div class="tallies">{tally}</div>
+</header>
+<div class="grid" style="grid-template-columns:minmax(0,1fr)">
+  <section>
+    <div class="sec-h"><span>Operators · {total} distinct wallets</span><span>AGENTS HELD</span></div>
+    <div class="board">{rows}</div>
+  </section>
+</div>
+<footer class="foot"><span>OWNER INDEX BUILT FROM get-agents · SEARCH CANNOT SEE THIS</span><span>{now}</span></footer>
+</div></body></html>"""

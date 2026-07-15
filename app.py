@@ -146,6 +146,17 @@ def watchtower():
                     headers={"Cache-Control": "max-age=30"})
 
 
+@app.get("/operators")
+def operators():
+    """The board OKX's own marketplace cannot render: the same agents, grouped by the
+    WALLET that controls them. `agent search` never returns ownerAddress, so a buyer
+    sees N independent providers where there is really one face holding N passports."""
+    from oracle.watchtower import render_operators
+    html = render_operators(store.operators(limit=25))
+    return Response(html, media_type="text/html",
+                    headers={"Cache-Control": "max-age=30"})
+
+
 if __name__ == "__main__":
     import uvicorn
 

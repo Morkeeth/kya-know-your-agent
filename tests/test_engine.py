@@ -507,3 +507,31 @@ def test_distinct_names_never_trip_the_template_rule():
     from oracle.engine import _templated_count
     assert _templated_count(["Otto AI", "Newsliquid", "Barker Yield", "CoinAnk", "Argus"]) == 0
     assert _templated_count(["PulseBTC", "PulseETH", "PulseSOL", "EdgeBTC", "EdgeETH", "EdgeSOL"]) == 6
+
+
+# ------------------------------------------------------- operators board (the view)
+def test_operator_board_calls_a_farm_a_farm_and_spares_a_business():
+    """The board must not just rank by size: 0x2e8e85c1 runs 32 agents WITH real
+    customers and has to read as a business, not a farm."""
+    from oracle.watchtower import _op_verdict
+    farm = {"owner": "0xf", "agents": 99, "sales": 19,
+            "names": [f"Pulse{t}" for t in ("BTC", "ETH", "SOL", "BNB", "XRP")] * 3}
+    biz = {"owner": "0xb", "agents": 32, "sales": 69,
+           "names": ["SignalDesk", "DefiMacro", "ChainPulse", "DepthCharge"]}
+    thin = {"owner": "0xt", "agents": 4, "sales": 0, "names": ["A", "B", "C", "D"]}
+    assert _op_verdict(farm) == ("BLOCK", "ONE FACE")
+    assert _op_verdict(biz) == ("SAFE", "BUSINESS")
+    assert _op_verdict(thin) == ("CAUTION", "THIN")
+
+
+def test_operator_rows_are_colour_coded_by_verdict():
+    """Regression: the first cut passed the STAMP LABEL where the verdict was
+    expected, so _eye fell through to its lime default and every row rendered
+    identically — a board where a farm looks like a business is worse than no board."""
+    from oracle.watchtower import _op_row
+    farm = _op_row({"owner": "0x" + "a" * 40, "agents": 99, "sales": 0,
+                    "names": [f"Pulse{t}" for t in ("BTC", "ETH", "SOL")] * 2}, 1)
+    biz = _op_row({"owner": "0x" + "b" * 40, "agents": 7, "sales": 30, "names": ["Otto"]}, 2)
+    assert "#FF5247" in farm and "ONE FACE" in farm      # red
+    assert "#D9F94C" in biz and "BUSINESS" in biz        # lime
+    assert "#FF5247" not in biz

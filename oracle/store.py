@@ -283,3 +283,29 @@ def fleet_for(owner: str, path: str | None = None) -> dict | None:
         "total_sales": sum((m.get("sold") or 0) for m in members),
         "members": members,
     }
+
+
+def operators(limit: int = 25, path: str | None = None) -> dict:
+    """The marketplace ranked by WHO CONTROLS IT, not by agent.
+
+    This is the view OKX's own marketplace cannot render: `agent search` never
+    returns ownerAddress, so the UI can only ever show you N listings. Group those
+    same listings by owner and the shape of the place changes completely.
+    """
+    with _conn(path) as con:
+        rows = con.execute(
+            "SELECT owner, COUNT(*) agents, SUM(COALESCE(sold,0)) sales,"
+            " SUM(CASE WHEN COALESCE(sold,0)=0 THEN 1 ELSE 0 END) zero_sale"
+            " FROM agent_owners GROUP BY owner"
+            " ORDER BY agents DESC, sales DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        total_agents = con.execute("SELECT COUNT(*) c FROM agent_owners").fetchone()["c"]
+        total_owners = con.execute("SELECT COUNT(DISTINCT owner) c FROM agent_owners").fetchone()["c"]
+        out = []
+        for r in rows:
+            names = [x["name"] or "" for x in con.execute(
+                "SELECT name FROM agent_owners WHERE owner=? LIMIT 200", (r["owner"],)).fetchall()]
+            out.append({"owner": r["owner"], "agents": r["agents"], "sales": r["sales"],
+                        "zero_sale": r["zero_sale"], "names": names})
+    return {"operators": out, "total_agents": total_agents, "total_owners": total_owners}

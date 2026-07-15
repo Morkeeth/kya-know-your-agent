@@ -120,3 +120,15 @@ def test_record_owner_is_idempotent(tmp_path):
     f = store.fleet_for("0xAAA", path=p)
     assert f["known_agents"] == 1
     assert f["total_sales"] == 7
+
+
+def test_operators_ranks_by_control(tmp_path):
+    p = str(tmp_path / "t.db")
+    for i in range(9):
+        store.record_owner(str(i), "0xFARM", name=f"Pulse{i}", sold=0, path=p)
+    store.record_owner("90", "0xREAL", name="Otto", sold=200, path=p)
+    d = store.operators(limit=5, path=p)
+    assert d["total_agents"] == 10 and d["total_owners"] == 2
+    assert d["operators"][0]["owner"] == "0xfarm"      # most agents first
+    assert d["operators"][0]["agents"] == 9
+    assert d["operators"][0]["zero_sale"] == 9
