@@ -614,3 +614,45 @@ def test_measured_ceiling_reaches_a_real_number():
     assert meas.max_safe_usd > floor.max_safe_usd * 20
     assert meas.evidence["volumeBasis"] == "measured"
     assert floor.evidence["volumeBasis"] == "floor"
+
+
+# --------------------------------------------- A5 hardening (found by hostile audit)
+def test_one_wash_sale_per_shell_does_not_buy_immunity():
+    """The adversarial pass broke the first cut for ~$0.10: it gated on `sales == 0`, so
+    handing every shell ONE 0.001 sale bought total immunity for all 99. Judge the FLEET's
+    economics and require the agent to EARN OUT in money, not sale counts."""
+    ep = "https://svc.example.com/api"
+    farm = {"owner": "0xf", "known_agents": 99, "total_sales": 19, "zero_sale_agents": 92,
+            "members": [{"name": f"Pulse{t}", "sold": 0}
+                        for t in ("BTC", "ETH", "SOL", "BNB", "XRP")] * 20}
+    for s in (0, 1, 5, 50):
+        v = score_agent(_asp(salesCount=s), _svc(ep, fee="0.001"), _healthy(ep), fleet=farm)
+        assert "owner_fleet" in _keys(v), f"{s} token sales bought immunity"
+
+
+def test_a_shell_that_actually_earns_out_escapes():
+    """Self-healing must survive the hardening: real settled volume still clears you."""
+    ep = "https://svc.example.com/api"
+    farm = {"owner": "0xf", "known_agents": 99, "total_sales": 19, "zero_sale_agents": 92,
+            "members": [{"name": f"Pulse{t}", "sold": 0}
+                        for t in ("BTC", "ETH", "SOL", "BNB", "XRP")] * 20}
+    v = score_agent(_asp(salesCount=600), _svc(ep, fee="0.001"), _healthy(ep), fleet=farm)
+    assert "owner_fleet" not in _keys(v)
+
+
+def test_unlaunched_startup_is_not_called_a_sybil_farm():
+    """A real company can list several genuine agents before its first sale. Calling that a
+    farm is defamation. 'No customers' alone convicts only at a size nobody launches
+    honestly; a generated-name farm convicts at any size."""
+    ep = "https://svc.example.com/api"
+    newco = {"owner": "0xn", "known_agents": 6, "total_sales": 0, "zero_sale_agents": 6,
+             "members": [{"name": n, "sold": 0} for n in
+                         ("Ledgerly", "Quorum", "Tessellate", "Marrow", "Bindle", "Cormorant")]}
+    v = score_agent(_asp(salesCount=0), _svc(ep), _healthy(ep), fleet=newco)
+    assert "owner_fleet" not in _keys(v)        # not convicted
+    assert "owner_fleet_info" in _keys(v)       # but the concentration is still disclosed
+
+    big = {"owner": "0xb", "known_agents": 25, "total_sales": 0, "zero_sale_agents": 25,
+           "members": [{"name": f"Distinct{i}", "sold": 0} for i in range(25)]}
+    v2 = score_agent(_asp(salesCount=0), _svc(ep), _healthy(ep), fleet=big)
+    assert "owner_fleet" in _keys(v2)           # 25 unsold distinct agents is not a startup

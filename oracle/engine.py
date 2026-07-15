@@ -366,12 +366,31 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         fleet_sales = _to_int(fleet.get("total_sales")) or 0
         names = [str(m.get("name") or "") for m in (fleet.get("members") or [])]
         templated = _templated_count(names)
+        # Judge the FLEET's economics, not this one agent's sales count. The first cut
+        # gated on `sales == 0`, which an adversarial pass broke for ~$0.10: one wash sale
+        # per shell (0.001 USDT) bought total immunity for all 99. A farm is a farm even if
+        # every shell has been handed a token sale — what gives it away is that the whole
+        # fleet has no real economic activity. 0x3256c679 = 99 agents / 19 sales = 0.19 per
+        # agent. 0x2e8e85c1 = 32 agents / 69 sales = 2.2 per agent, a real business.
+        per_agent = (fleet_sales / known) if known else 0.0
         evidence = []
         if fleet_sales == 0:
             evidence.append(f"not one of the {known} has ever sold")
+        elif per_agent < 1:
+            evidence.append(f"{fleet_sales} sales spread across {known} agents "
+                            f"({per_agent:.2f} each) — no real trade anywhere in the fleet")
         if templated >= 5:
             evidence.append(f"{templated} names machine-generated from a shared template")
-        if known >= 5 and sales == 0 and evidence:
+        # A generated-name farm is damning at any size. "No customers" ALONE is not: a real
+        # startup can list several genuine agents before its first sale, and calling that a
+        # sybil farm is defamation (adversarial pass: 6 distinct-named unlaunched agents
+        # tripped the first cut). So no-customers only convicts at a size nobody launches
+        # honestly. Below that it is merely unproven, which the sales signal already says.
+        convicting = templated >= 5 or known >= 20
+        # This agent escapes only by EARNING out, measured in money not sale counts —
+        # reusing the engine's own "thin volume" bar so one 0.001 sale cannot buy immunity.
+        earned_out = volume >= 0.5
+        if known >= 5 and evidence and convicting and not earned_out:
             # Scale with the size of the farm: 99 shells is a different claim than 5.
             delta, cap = (-12, 62) if known < 20 else (-20, 58) if known < 50 else (-28, 52)
             signals.append(Signal("owner_fleet", delta,
