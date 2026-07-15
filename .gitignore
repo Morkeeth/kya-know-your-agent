@@ -16,3 +16,4 @@ preview.html
 # listing watcher (local ops, never public)
 .listing-state
 .listing-watch.log
+.listing-fails
