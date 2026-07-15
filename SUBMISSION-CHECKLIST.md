@@ -33,17 +33,29 @@ Repo state as of 2026-07-14 (branch `main`).
       the "always-fresh timeline" story.
 
 ## 👤 Oscar-only (cannot be automated)
-- [ ] **Record the ~3-min demo**: narrate `bash scripts/demo.sh` live. Beat sheet: problem,
-      live spread (BLOCK on Sentiment Oracle), in-loop caller REFUSES, flip + poison detectors
-      (say "controlled test agent, real detector"), the 371-agent watchtower board. Every
-      on-screen number comes from the live call. Tonight per your plan.
-- [ ] **X post (#OKXAI)**: short, video-first, killer hook, no bragging. Morning slot
-      (Tue-Thu 8-10am Paris), Jul 15/16 AM, not evening.
-- [ ] **Google form**: fill from `SUBMISSION.md`; headline = signed live BLOCK primitive + 371
-      agents judged. Does NOT need the #5290 listing approved (decouple, see below).
-- [ ] **ASP #5290 listing approval**: outside our control, trackable on request. If it slips
-      past Jul 17, submit anyway with "listing review in progress" (stated honestly in README).
-      Do NOT re-activate or change the listing.
+> **🚨 CORRECTED Jul 15 — read this before the rows below.** The official rules (Step 2) state:
+> *"Your ASP must pass OKX AI's internal review and go live to remain eligible. If the ASP listing
+> is not approved or cannot go live, your hackathon submission will be deemed invalid."*
+> The prior "decouple / submit anyway" strategy in this file was **WRONG** and is dead.
+> **Approval + a live listing is a HARD eligibility gate.** Verified live Jul 15 07:23 UTC:
+> #5290 = `Listing under review`, status `not listed` (in review since Jul 13 10:47 UTC, ~45h,
+> past the claimed ≤24h). Deadline is Jul 17 **23:59 UTC**. Demo cap is **90 seconds**, not 3 min.
+
+- [ ] **Record the demo — HARD CAP 90 SECONDS** (rules: "Demo content should be no longer than 90
+      seconds"). This file previously said ~3 min: **wrong, would breach the rules.** Narrate
+      `bash scripts/demo.sh` live. Beat sheet must be re-cut to fit 90s: problem, live spread
+      (BLOCK on Sentiment Oracle), in-loop caller REFUSES, the 371-agent watchtower board.
+      Flip + poison detectors are the first cut if over time. Every on-screen number from the live call.
+- [ ] **X post (#OKXAI)** — must introduce the ASP, explain the use case, and carry the demo.
+      Short, video-first, killer hook, no bragging. Morning slot (Tue-Thu 8-10am Paris), not evening.
+      **Post BEFORE the form** — the form requires a link to this post.
+- [ ] **Google form** (Jul 17 **23:59 UTC**): fill from `SUBMISSION.md`; must include ASP details
+      + the X post link. Headline = signed live BLOCK primitive + 371 agents judged.
+- [ ] 🚨 **ASP #5290 listing approval = THE ELIGIBILITY GATE, not a nice-to-have.** Outside our
+      control. Do NOT re-activate or change the listing (it is already submitted; `activate` on an
+      under-review listing is a no-op). The only lever is **nudging OKX review**. AI pre-screen
+      remark is already positive ("AI quality review suggested pass"). If it is still `not listed`
+      at the deadline, submit anyway (costs nothing) but understand the entry is invalid as written.
 
 ## Headline for the writeup
 "A star rating is a claim; KYA checks the receipts." Signed, callable, always-fresh

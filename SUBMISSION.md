@@ -2,8 +2,19 @@
 
 ## ✅ LIVE STATUS
 - **Deployed:** https://kya-production-f846.up.railway.app (`/verify`, `/passport`, `/seal`, `/pubkey`) — working, signed verdicts.
-- **Registered ASP:** **KYA · Agent ID #5290** (A2MCP, free) — created on-chain (tx `0x71f851…`), **in ≤24h review**. Callable now via Agent ID #5290 or the endpoint.
-- **Remaining (yours):** record demo · X post · Google form.
+- **Registered ASP:** **KYA · Agent ID #5290** (A2MCP, free) — created on-chain (tx `0x71f851…`). Callable now via Agent ID #5290 or the endpoint.
+- **Remaining (yours):** record demo (**≤90s**) · X post (#OKXAI) · Google form. **Post to X BEFORE the form** (the form needs the post link).
+
+> **⚠️ LISTING STATUS — verified live Jul 15, 07:2x UTC (this is the eligibility gate).**
+> #5290 = **`Listing under review` / `not listed`**, registered Jul 13 10:47 UTC (~46h, past the
+> documented 24h SLA). The old "in ≤24h review" line above was optimistic and is corrected here.
+> **Diagnosis (evidence-based, Jul 15):** this is an OKX-side stall, not a KYA problem. Listings with
+> an **empty** `approvalRemark` auto-list within hours (#5300, #5335, #5540, …). *Every* listing
+> carrying an AI-quality-review remark is stuck under review ~46h later, despite the AI recommending
+> **pass**: #5286 Mutatis, #5289 NanaSignal, **#5290 KYA**, #5296 Endpoint Pulse, #5330 Onchain·Guardian
+> (remark in CN). 7/7 correlation in the sampled cohort. KYA's own remark reads "AI quality review
+> suggested pass" — it should pass when a human looks. **Do NOT re-activate or edit the listing.**
+> The only lever is escalating to OKX to un-stall the manual approval step.
 
 **Deadline: Jul 17 2026, 23:59 UTC.** Valid submission = ASP **built + approved & listed** on OKX.AI + an **X post (#OKXAI)** + the **Google form**. The approve+list review is ≤24h, so **register early**.
 
@@ -14,9 +25,10 @@ Critical path (the long poles are yours — I've made them zero-friction):
 
 ## 1. Framing (the pitch, one breath)
 
-> Agents on OKX.AI hire and pay each other blind. Everyone's building services that vet *tokens* and *wallets* — **nobody vets the agents themselves.** KYA is the missing trust primitive: call it before you transact and get a signed SAFE/CAUTION/BLOCK verdict on the counterparty agent. It makes OKX's own marketplace safer to transact in.
+> Agents on OKX.AI hire and pay each other blind. Everyone's building services that vet *tokens* and *wallets* — **nobody vets the agents themselves.** KYA is the missing trust primitive: call it before you transact and get a signed SAFE/CAUTION/BLOCK verdict on the counterparty agent — **plus `max_safe_usd`, the dollar ceiling that agent has earned the right to be trusted with.** Don't rate agents. Price them. It makes OKX's own marketplace safer to transact in.
 
-- **Track:** Trust-infra / **Finance Copilot** / Software Utility. Lead with "the reputation/trust layer the marketplace is missing" (OKX keeps naming this lane — CertiK is their *token* security partner; KYA is the *agent* one).
+- **The V2 wedge (lead with this):** a star rating is an opinion; a ceiling is a decision. `max_safe_usd` is derived from **settled volume**, not review counts, so it cannot be inflated by wash trading or a review ring. Live proof: `/verify?agentId=2118` → Otto AI, SAFE, score 100, **max_safe_usd 0.66**.
+- **Track:** **Software Utility** — the ASP is registered on OKX.AI under `SOFTWARE_SERVICES`, so that is the category award actually available. (Finance Copilot was previously claimed here: **wrong**, corrected Jul 15.) Lead with "the reputation/trust layer the marketplace is missing" (CertiK is OKX's *token* security partner; KYA is the *agent* one). Also in reach: **Best Product**, **Creative Genius**, **Social Buzz**. Out of reach: **Revenue Rocket** (fee 0, soldCount 0).
 - **Why it's real, not a toy:** it checks the receipts — settled volume (not wash-tradeable counts), live endpoint behaviour, **malicious-endpoint scanning**, and **reviewer-integrity** (self-review / sybil-ring detection). Every verdict is Ed25519-signed + time-bounded.
 
 ## 2. Deploy (Railway — ~10 min)
