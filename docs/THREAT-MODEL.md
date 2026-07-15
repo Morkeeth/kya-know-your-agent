@@ -32,13 +32,14 @@ signal - not a guarantee of future behavior, which is provably impossible (see L
 | OKX phishing/blacklist host scan | LLM03-adjacent, malicious endpoint | Drainer/phishing endpoints | **Strong on a hit, weak on a miss** - fresh fraud infra isn't listed yet |
 | Persisted verdicts + **re-verify-on-change** (`/changes`, `/history`) | rug pull | MCPoison (CVE-2025-54136): approval bound to name not content, silent swap | **High *because* stateful.** The single biggest thing KYA adds over a one-shot scanner. Enhancement: full-surface hash-pinning + diff-before-tx |
 | SSRF-guarded prober (refuses internal/loopback/metadata) | oracle self-defense | Drainer endpoint probing the oracle's own infra; DNS-rebinding | **Essential oracle-side control.** Correct as a control; weak as a claim about the remote host |
+| **Owner-concentration / supply-side sybil** (one wallet, N shells; `owner_fleet`) | ASI-reputation, sybil | One operator wearing N costumes: verified live Jul 15 — `0x3256c679…` runs **99** agents, `0x11f90417…` runs **75**, both on the identical name template (same operator, split wallets). 174 of 603 indexed = 29%. | **High on the lazy case, and structurally unique: OKX's own `agent search` never returns `ownerAddress`, so the marketplace UI cannot show this.** Fleet size alone never convicts — the penalty needs corroborating evidence + zero settled volume, so real multi-agent businesses (32 and 7 agents, real sales) are disclosed, not penalised. **Known limit: keys on the wallet, so splitting across wallets evades it — and the operator in the wild ALREADY does. Template-clustering across wallets is the next slice.** |
 | Ed25519-signed, TTL-bounded verdicts; pinned-key offline verification | T8 non-repudiation | Rogue oracle self-signing SAFE | **Strong.** The trust root; verifiable offline against `/pubkey` |
 
 ## Honest gaps (prioritized, cheap-first)
 
 Real, mostly cheap improvements the literature says matter and KYA does not do yet:
 
-1. **Domain age (RDAP) + Certificate-Transparency first-seen** - one of the strongest cheap signals (~78% of phishing domains are <30 days old). Not in KYA. **Top fast-follow.**
+1. ~~**Domain age (RDAP) + Certificate-Transparency first-seen**~~ — **SHIPPED in V2** (`data.fetch_domain_intel` → `engine` `domain_age` signal). This line said "Not in KYA. Top fast-follow." for a full version after it landed. Corrected Jul 15.
 2. **Full reviewer-graph collusion detection** (FRAUDAR-style bipartite, camouflage-resistant) - KYA does self-review/single-ring only.
 3. **Time-decay on stored reputation** - defense against the good-then-bad "sleeper flip" (Reputation Lag Attack). KYA has TTL on verdicts but no decay on accumulated reputation weight.
 4. **Web Bot Auth request signatures (RFC 9421)** - the strongest *live* proof of key+domain control per request. Not checked.
@@ -61,7 +62,7 @@ The right posture, aligned with the consensus (arXiv 2511.03434): **default zero
 
 ## External validation of KYA's headline
 
-KYA's live sweep found only **~4% of 374 listed OKX agents earn SAFE**. Independent academic work
+KYA's live sweep found only **~2% of agents on the board earn SAFE** (8 of 374 at the Jul 15 sweep; it was ~4% before supply-side sybil detection reclassified fleet shells — read the live counts off `/watchtower`, never off this page). Independent academic work
 reached the same conclusion: "Can Trustless Agents Be Trusted?" (arXiv 2606.26028) audited deployed
 ERC-8004 agents and found only **3% / 4% / 15%** (Ethereum/BSC/Base) have a valid live endpoint, and
 **73-90% of reviewers are Sybil**. The rot KYA measures live on OKX is the rot the literature measures
