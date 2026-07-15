@@ -420,3 +420,90 @@ def test_digest_is_stable_and_present():
     a = score_agent(_asp(salesCount=169), _svc(ep), _healthy(ep))
     b = score_agent(_asp(salesCount=169), _svc(ep), _healthy(ep))
     assert a.digest and a.digest == b.digest
+
+
+# ------------------------------------------------- A5: supply-side sybil (owner fleet)
+# Ground truth these lock in (verified live 2026-07-15): wallet 0x3256c679…168d69
+# controls 99 agents (Pulse/Edge/Depth/Cycle x ~19 tickers), 0x11f90417…810dfd another
+# 75 cloning the same template. OKX's search API never exposes ownerAddress, so the
+# marketplace itself cannot show a buyer that N "providers" are one wallet.
+
+def _fleet(n, *, sales=0, stem="Pulse", owner="0xdead0000000000000000000000000000beef0001"):
+    toks = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "LINK", "AVAX", "DOT",
+            "TRX", "LTC", "BCH", "ATOM", "NEAR", "FIL", "APT", "ARB", "OP", "MATIC"]
+    members = [{"agent_id": str(900 + i), "name": f"{stem}{toks[i % len(toks)]}", "sold": 0}
+               for i in range(n)]
+    if sales and members:
+        members[0]["sold"] = sales
+    return {"owner": owner, "known_agents": n, "total_sales": sales,
+            "zero_sale_agents": sum(1 for m in members if not m["sold"]), "members": members}
+
+
+def _keys(v):
+    return {s["key"] for s in v.signals}
+
+
+def test_large_templated_zero_sale_fleet_is_flagged():
+    """99 shells behind one wallet: not an independent provider."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=0), _svc(ep), _healthy(ep), fleet=_fleet(99))
+    assert "owner_fleet" in _keys(v)
+    assert v.verdict != SAFE
+    assert "99" in " ".join(v.reasons)
+
+
+def test_fleet_penalty_scales_with_size():
+    """5 shells and 99 shells are different claims; the score must say so."""
+    ep = "https://svc.example.com/api"
+    small = score_agent(_asp(salesCount=0), _svc(ep), _healthy(ep), fleet=_fleet(6))
+    big = score_agent(_asp(salesCount=0), _svc(ep), _healthy(ep), fleet=_fleet(99))
+    assert big.score < small.score
+
+
+def test_honest_multi_agent_operator_is_disclosed_not_penalised():
+    """A real operator (SignalDesk's owner: 32 agents, real sales) keeps its reputation.
+    Fleet size alone is NOT fraud — this is the false positive that would wreck KYA."""
+    ep = "https://svc.example.com/api"
+    f = _fleet(32, sales=69)
+    v = score_agent(_asp(salesCount=42), _svc(ep), _healthy(ep), fleet=f)
+    assert "owner_fleet" not in _keys(v)          # no penalty
+    assert "owner_fleet_info" in _keys(v)         # but disclosed
+    assert any(s["delta"] == 0 for s in v.signals if s["key"] == "owner_fleet_info")
+
+
+def test_fleet_disclosure_is_visible_to_a_buyer():
+    """A signal nobody reads is worthless: zero-delta info is normally filtered out."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=42), _svc(ep), _healthy(ep), fleet=_fleet(32, sales=69))
+    assert any("Owner runs 32" in r for r in v.reasons)
+
+
+def test_small_fleet_does_not_fire():
+    """Below the threshold, running a couple of agents is just normal."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=0), _svc(ep), _healthy(ep), fleet=_fleet(3))
+    assert "owner_fleet" not in _keys(v)
+
+
+def test_agent_with_own_sales_escapes_fleet_penalty():
+    """Self-healing: a shell that earns real settled volume stops being scored as one."""
+    ep = "https://svc.example.com/api"
+    f = _fleet(99)
+    v = score_agent(_asp(salesCount=250), _svc(ep), _healthy(ep), fleet=f)
+    assert "owner_fleet" not in _keys(v)
+
+
+def test_no_fleet_data_changes_nothing():
+    """Cold index / unknown wallet must be silent, never a guess."""
+    ep = "https://svc.example.com/api"
+    a = score_agent(_asp(salesCount=0), _svc(ep), _healthy(ep))
+    b = score_agent(_asp(salesCount=0), _svc(ep), _healthy(ep), fleet=None)
+    assert a.score == b.score
+    assert "owner_fleet" not in _keys(a) and "owner_fleet" not in _keys(b)
+
+
+def test_distinct_names_never_trip_the_template_rule():
+    """An operator with genuinely distinct names can't be convicted on naming alone."""
+    from oracle.engine import _templated_count
+    assert _templated_count(["Otto AI", "Newsliquid", "Barker Yield", "CoinAnk", "Argus"]) == 0
+    assert _templated_count(["PulseBTC", "PulseETH", "PulseSOL", "EdgeBTC", "EdgeETH", "EdgeSOL"]) == 6

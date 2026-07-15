@@ -65,6 +65,20 @@ CREATE TABLE IF NOT EXISTS probe_samples (
     latency_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_probe_agent ON probe_samples(agent_id, endpoint, ts DESC);
+
+-- Supply-side sybil index: which wallet controls which agents.
+-- The marketplace search API does NOT expose ownerAddress, so a buyer browsing
+-- OKX.AI cannot see that N "independent providers" are one wallet. Only
+-- `agent get-agents` reveals it. We record it on every assess, so the index
+-- self-populates from the sweep we already run (zero extra API calls).
+CREATE TABLE IF NOT EXISTS agent_owners (
+    agent_id TEXT PRIMARY KEY,
+    owner    TEXT NOT NULL,
+    name     TEXT,
+    sold     INTEGER,
+    seen_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_owners_owner ON agent_owners(owner);
 """
 
 
@@ -223,3 +237,49 @@ def recent_changes(limit: int = 20, path: str | None = None) -> list[dict]:
             (limit,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def record_owner(agent_id: str, owner: str, name: str | None = None,
+                 sold: int | None = None, seen_at: int | None = None,
+                 path: str | None = None) -> None:
+    """Index agent -> owning wallet. Called on every assess, so the owner map fills
+    in from the sweep we already run. Cheap, idempotent, no extra API calls."""
+    owner = (owner or "").strip().lower()
+    if not owner or not agent_id:
+        return
+    with _conn(path) as con:
+        con.execute(
+            "INSERT INTO agent_owners(agent_id,owner,name,sold,seen_at) VALUES(?,?,?,?,?)"
+            " ON CONFLICT(agent_id) DO UPDATE SET owner=excluded.owner, name=excluded.name,"
+            " sold=excluded.sold, seen_at=excluded.seen_at",
+            (str(agent_id), owner, name, sold, int(seen_at if seen_at is not None else time.time())),
+        )
+
+
+def fleet_for(owner: str, path: str | None = None) -> dict | None:
+    """What else does this wallet control, according to what KYA has actually seen?
+
+    Deliberately reports KNOWN agents, never a claim about the whole marketplace:
+    the index only contains agents we have verified, so an un-swept store
+    undercounts. Undercounting is safe (the signal simply doesn't fire); inventing
+    a total we haven't observed would be the exact staleness bug this codebase
+    keeps getting bitten by. Returns None when the wallet is unknown.
+    """
+    owner = (owner or "").strip().lower()
+    if not owner:
+        return None
+    with _conn(path) as con:
+        rows = con.execute(
+            "SELECT agent_id,name,sold FROM agent_owners WHERE owner=? ORDER BY CAST(agent_id AS INTEGER)",
+            (owner,),
+        ).fetchall()
+    if not rows:
+        return None
+    members = [dict(r) for r in rows]
+    return {
+        "owner": owner,
+        "known_agents": len(members),
+        "zero_sale_agents": sum(1 for m in members if not (m.get("sold") or 0)),
+        "total_sales": sum((m.get("sold") or 0) for m in members),
+        "members": members,
+    }

@@ -12,3 +12,7 @@ kya.db
 kya.db-shm
 kya.db-wal
 preview.html
+
+# listing watcher (local ops, never public)
+.listing-state
+.listing-watch.log

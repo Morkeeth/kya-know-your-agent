@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+from collections import Counter
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
@@ -77,12 +79,30 @@ def _live_label(probe: dict) -> str:
     return "unreachable"
 
 
+def _templated_count(names: list[str]) -> int:
+    """How many of these names look machine-generated from a small template?
+
+    A sybil farm is cheap to spin up precisely because the names are generated:
+    PulseBTC / PulseETH / EdgeBTC / EdgeETH collapse to the stems {Pulse, Edge}.
+    We strip a trailing ALLCAPS token (the ticker) and count names whose stem is
+    shared by >=3 siblings. Conservative on purpose: an operator with a few
+    genuinely distinct names scores 0 here and cannot trip the fleet penalty on
+    naming alone.
+    """
+    stems: Counter = Counter()
+    for n in names:
+        stem = re.sub(r"[A-Z0-9]{2,}$", "", (n or "").strip()).strip()
+        if stem:
+            stems[stem] += 1
+    return sum(c for c in stems.values() if c >= 3)
+
+
 def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str, dict],
                 agent_id: str | None = None, *, malicious_hosts: list[str] | None = None,
                 feedback: dict | None = None, owner_addrs: list[str] | None = None,
                 history: dict | None = None, identity: dict | None = None,
                 settlement: dict | None = None, content: list[dict] | None = None,
-                domain_intel: dict | None = None) -> Verdict:
+                domain_intel: dict | None = None, fleet: dict | None = None) -> Verdict:
     """
     agent_info    : the `agentInfo` from `onchainos agent service-list` (may be None).
     services      : the `list` array (each has endpoint, fee, serviceType, ...).
@@ -90,6 +110,8 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     malicious_hosts : endpoint hosts flagged by OKX's phishing/blacklist scan (A1).
     feedback      : {reviewers:[addr], distribution, count} for reviewer audit (A2).
     owner_addrs   : the agent's own owner/wallet addresses (to catch self-review).
+    fleet         : {owner, known_agents, zero_sale_agents, total_sales, members} from
+                    store.fleet_for() — supply-side sybil (one wallet, many shells).
     """
     # ---- No ASP record at all (User/buyer identity, or unregistered) ----
     if not agent_info:
@@ -332,6 +354,44 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         # (the slice-1 spike's facilitator caveat), so a mismatch is uninformative
         # here and must not BLOCK. Only a positive match earns credit.
 
+    # ---- A5: SUPPLY-side sybil — is this "provider" one of N shells behind one wallet? ----
+    # The demand side (review rings) and the settlement side (wash trades) were already
+    # covered; this is the missing third face. Counterparty risk is carried by the WALLET,
+    # not the listing: 99 agents behind one owner are one failure mode wearing 99 costumes,
+    # and OKX's own search API never exposes ownerAddress, so a buyer browsing the
+    # marketplace cannot see it. KYA can, because it reads get-agents.
+    #
+    # Fleet size ALONE is not fraud — a real company may run several genuine agents — so
+    # this never fires on size. It fires only when the fleet shows no customers ANYWHERE
+    # and this agent has none either, and it always names the evidence that fired. A fleet
+    # that actually sells keeps its reputation, and a shell that earns real settled volume
+    # heals out of the penalty on the next re-verify.
+    if fleet:
+        known = _to_int(fleet.get("known_agents")) or 0
+        fleet_sales = _to_int(fleet.get("total_sales")) or 0
+        names = [str(m.get("name") or "") for m in (fleet.get("members") or [])]
+        templated = _templated_count(names)
+        evidence = []
+        if fleet_sales == 0:
+            evidence.append(f"not one of the {known} has ever sold")
+        if templated >= 5:
+            evidence.append(f"{templated} names machine-generated from a shared template")
+        if known >= 5 and sales == 0 and evidence:
+            # Scale with the size of the farm: 99 shells is a different claim than 5.
+            delta, cap = (-12, 62) if known < 20 else (-20, 58) if known < 50 else (-28, 52)
+            signals.append(Signal("owner_fleet", delta,
+                f"One wallet ({str(fleet.get('owner') or '')[:10]}…) controls {known} known agents "
+                f"including this one — {'; '.join(evidence)}. Not an independent provider: "
+                f"you are trusting one operator, not {known} reputations.",
+                "warn", cap=cap))
+        elif known >= 5:
+            # Named, not penalised. A multi-agent operator that actually sells is a
+            # business, and the buyer still deserves to know the concentration exists.
+            signals.append(Signal("owner_fleet_info", 0,
+                f"Owner runs {known} known agents ({fleet_sales} settled sales across them) — "
+                f"concentration disclosed, no penalty: the fleet has real customers.",
+                "info"))
+
     # ---- A2: audit reputation by WHO reviewed, not the aggregate star average ----
     if feedback:
         reviewers = feedback.get("reviewers") or []
@@ -462,13 +522,28 @@ def _confidence(agent_info: dict, services: list[dict], endpoints: list) -> int:
     return min(100, c)
 
 
+# Zero-delta info is normally dropped as noise, but a few disclosures are material to
+# the buyer's decision even when they move no score: "this operator also runs 31 other
+# agents" changes who you think you're dealing with, whether or not we penalise it.
+_ALWAYS_SURFACE = {"owner_fleet_info"}
+
+
 def _headline_reasons(signals: list[Signal], score: int, ceiling: int) -> list[str]:
     """The sharp, human-readable 'why' — criticals first, then the rest."""
     order = {"critical": 0, "warn": 1, "good": 2, "info": 3}
-    ranked = sorted(signals, key=lambda s: (order.get(s.severity, 9), -abs(s.delta)))
+
+    def _rank(s: Signal):
+        # Material disclosures outrank good news: the headline list is truncated, and
+        # "this operator runs 31 other agents" matters more to a buyer than "marked
+        # online". Without this they sort last as info and get cut by the [:6] slice.
+        base = 1.5 if s.key in _ALWAYS_SURFACE else order.get(s.severity, 9)
+        return (base, -abs(s.delta))
+
+    ranked = sorted(signals, key=_rank)
     out = []
     for s in ranked:
-        if s.delta == 0 and s.cap is None and s.severity == "info":
+        if (s.delta == 0 and s.cap is None and s.severity == "info"
+                and s.key not in _ALWAYS_SURFACE):
             continue
         mark = {"critical": "⛔", "warn": "⚠️", "good": "✅", "info": "ℹ️"}.get(s.severity, "•")
         out.append(f"{mark} {s.reason}")

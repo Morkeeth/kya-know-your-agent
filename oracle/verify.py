@@ -25,6 +25,17 @@ def assess(agent_id: str, *, persist: bool = True) -> Verdict:
     owner = [str(info.get("ownerAddress") or "").lower(),
              str(info.get("agentWalletAddress") or "").lower()]
     hist = store.uptime(agent_id) if persist else None
+    # Index this agent -> its owning wallet, THEN ask what else that wallet controls.
+    # Recording first means an agent always sees at least itself, so a fleet of one
+    # reads as a fleet of one rather than as "unknown". The index fills in from the
+    # sweep we already run (seed_all), so this costs no extra API calls.
+    fleet = None
+    if persist:
+        owner_addr = str(info.get("ownerAddress") or "").lower()
+        if owner_addr:
+            store.record_owner(agent_id, owner_addr, name=info.get("name"),
+                               sold=info.get("salesCount"))
+            fleet = store.fleet_for(owner_addr)
     # Default-OFF; only reads on-chain settlements when explicitly enabled + keyed.
     settle = None
     if _settlement.enabled():
@@ -34,7 +45,7 @@ def assess(agent_id: str, *, persist: bool = True) -> Verdict:
     v = score_agent(info, services, probes, agent_id=agent_id,
                     malicious_hosts=malicious, feedback=feedback, owner_addrs=owner,
                     history=hist, identity=identity, settlement=settle, content=content,
-                    domain_intel=domain_intel)
+                    domain_intel=domain_intel, fleet=fleet)
 
     if persist:
         sh = store.state_hash(info, services, feedback)

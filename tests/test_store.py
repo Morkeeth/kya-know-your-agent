@@ -89,3 +89,34 @@ def test_uptime_needs_min_samples_then_computes(tmp_path):
                                        "latency_ms": None}}, ts=5, path=db)
     up = store.uptime("2118", path=db)
     assert up and up[ep]["samples"] == 5 and up[ep]["uptime"] == 0.8
+
+
+# ------------------------------------------------------------- owner index (A5)
+def test_owner_index_round_trip(tmp_path):
+    p = str(tmp_path / "t.db")
+    store.record_owner("1", "0xAAA", name="PulseBTC", sold=0, path=p)
+    store.record_owner("2", "0xaaa", name="PulseETH", sold=3, path=p)
+    store.record_owner("3", "0xBBB", name="Otto", sold=99, path=p)
+    f = store.fleet_for("0xaaa", path=p)
+    assert f["known_agents"] == 2          # case-insensitive: 0xAAA and 0xaaa are one wallet
+    assert f["total_sales"] == 3
+    assert f["zero_sale_agents"] == 1
+    assert {m["name"] for m in f["members"]} == {"PulseBTC", "PulseETH"}
+
+
+def test_unknown_owner_is_none_not_a_guess(tmp_path):
+    """An un-swept store must undercount silently, never invent a total."""
+    p = str(tmp_path / "t.db")
+    assert store.fleet_for("0xnever-seen", path=p) is None
+    assert store.fleet_for("", path=p) is None
+
+
+def test_record_owner_is_idempotent(tmp_path):
+    """Re-sweeping must update in place, not inflate the fleet count."""
+    p = str(tmp_path / "t.db")
+    for _ in range(5):
+        store.record_owner("1", "0xAAA", name="PulseBTC", sold=0, path=p)
+    store.record_owner("1", "0xAAA", name="PulseBTC", sold=7, path=p)
+    f = store.fleet_for("0xAAA", path=p)
+    assert f["known_agents"] == 1
+    assert f["total_sales"] == 7
