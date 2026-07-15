@@ -225,13 +225,8 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     # 10x for ~$0.01 and you'd clear a count-based gate. So SAFE is gated on
     # settled volume (sales x median fee), and sub-cent sales cap at CAUTION.
     sales = _to_int(agent_info.get("salesCount")) or 0
-    # Use the CHEAPEST fee you actually PAY (min non-zero), never the median: a
-    # median is trivially inflated by listing an expensive decoy service that's
-    # never sold, while the real wash-traded service stays sub-cent.
     paid_fees = [f for f in (_to_float(s.get("fee")) for s in services) if f is not None and f > 0]
-    eff_fee = min(paid_fees) if paid_fees else None
-    volume = sales * eff_fee if eff_fee is not None else 0.0
-    vtxt = f" (~{volume:.2f} USDT settled @ ≥{eff_fee:g})" if eff_fee is not None else " (no paid pricing)"
+    volume, eff_fee, vbasis, vtxt = _volume_basis(sales, paid_fees, settlement)
 
     if sales == 0:
         signals.append(Signal("sales", 0,
@@ -482,6 +477,14 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         "serviceCount": len(services),
         "endpoints": {e: _live_label(probes.get(e, {})) for e in endpoints},
         "cappedAt": ceiling if ceiling < raw else None,
+        # A caller extending real credit needs to know whether the ceiling is MEASURED
+        # (on-chain money, counted) or a FLOOR (sales x cheapest fee, deliberately
+        # conservative). Same number, very different epistemic weight — and a floor on a
+        # wide fee spread understates a lot, so publishing the basis is not optional.
+        "volumeBasis": vbasis,
+        "settledVolume": round(volume, 6),
+        "feeSpread": (round(max(paid_fees) / eff_fee, 1)
+                      if paid_fees and eff_fee else None),
     }
 
     v = Verdict(agent_id=aid, name=name, verdict=verdict, score=score,
@@ -489,6 +492,55 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
                 signals=[asdict(s) for s in signals], evidence=evidence)
     v.digest = _digest(v)
     return v
+
+
+def _volume_basis(sales: int, paid_fees: list[float],
+                  settlement: dict | None) -> tuple[float, float | None, str, str]:
+    """How many dollars has this agent PROVABLY moved? Returns (volume, eff_fee, basis, text).
+
+    Two bases, and the distinction is the whole point of the priced-trust wedge:
+
+    **measured** — on-chain settlement. Money that actually moved, counted. Ground truth,
+    not an estimate. Used whenever settlement data is present and does not look washed.
+
+    **floor** — `sales x min(fee)`. NOT an estimate of revenue: a *lower bound on what
+    someone must have SPENT* to produce this sales count. That is the right quantity for an
+    underwriter, which extends credit against cost-to-fake rather than against claimed
+    takings. It understates honest multi-tier agents (Otto: 40 services priced 0.001-0.15,
+    a 150x spread, so the floor reads $0.22 against real takings nearer $11) and that
+    understatement is the price of not measuring.
+
+    Why min and not a "better" statistic — this is a proof, not a preference:
+    listing a service is free, so any statistic an attacker can RAISE by adding a service
+    (mean, median, mode, count-weighted) is inflatable with decoys that never sell. Min is
+    the unique fee statistic that adding a service can only LOWER, and lowering your own
+    ceiling is not an attack. So min is the only attacker-safe estimator, and the way to
+    beat it is to stop estimating (see: measured) rather than to guess more cleverly.
+    Verified on real data 2026-07-15: median == min for Otto AND Explorer (fee
+    distributions are skewed cheap), so "median fixes it" is false as well as unsafe.
+    """
+    eff_fee = min(paid_fees) if paid_fees else None
+
+    # Measured beats estimated, but never trust washed money. Uses the SAME predicate the
+    # score uses (_looks_washed) — a first cut had its own looser test here, which would
+    # have let money the score was capping as a wash still raise the dollar ceiling.
+    if settlement:
+        onchain = _to_float(settlement.get("onchain_volume")) or 0.0
+        dp = _to_int(settlement.get("distinct_payers")) or 0
+        if onchain > 0 and not _looks_washed(settlement):
+            return (onchain, eff_fee, "measured",
+                    f" (~{onchain:.2f} USDT settled on-chain, {dp} distinct payers — measured, not estimated)")
+
+    if eff_fee is None:
+        return 0.0, None, "none", " (no paid pricing)"
+    volume = sales * eff_fee
+    band = ""
+    if paid_fees and max(paid_fees) > eff_fee:
+        # Say out loud that this is a floor and why it looks small, so an honest
+        # multi-tier agent is not silently libelled as unproven.
+        band = (f"; services priced {eff_fee:g}-{max(paid_fees):g}, so this is the floor "
+                f"(assumes every sale was the cheapest)")
+    return volume, eff_fee, "floor", f" (~{volume:.2f} USDT settled @ ≥{eff_fee:g}{band})"
 
 
 def _safe_ceiling(verdict: str, confidence: int, volume: float) -> float:
@@ -581,6 +633,27 @@ def _identical_ratio(amounts: list[float]) -> float:
     return max(counts.values()) / len(amounts)
 
 
+def _looks_washed(s: dict) -> bool:
+    """The ONE definition of "this on-chain money is not real volume".
+
+    Shared by the score (_settlement_signal) and the dollar ceiling (_volume_basis) on
+    purpose: they must never disagree. A first cut of the ceiling carried its own looser
+    test (dp <= 1), which would have let settlements the score was capping at 44 as a wash
+    still raise max_safe_usd — the score calling it a wash while the ceiling extended
+    credit against it.
+    """
+    dp = int(s.get("distinct_payers") or 0)
+    payers = s.get("payers") or {}
+    amounts = s.get("amounts") or []
+    vol = float(s.get("onchain_volume") or 0.0)
+    tx = int(s.get("tx_count") or len(amounts))
+    if tx == 0:
+        return True
+    total = sum(payers.values()) or vol or 1.0
+    top1 = (max(payers.values()) / total) if payers else 1.0
+    return (dp <= 3 and tx >= 10) or top1 >= 0.60 or _identical_ratio(amounts) >= 0.90
+
+
 def _settlement_signal(s: dict) -> "Signal | None":
     """Turn on-chain settlement facts into a trust signal. Concentration + distinct
     payers + identical-amount replay are robust at the small N real agents have;
@@ -600,8 +673,8 @@ def _settlement_signal(s: dict) -> "Signal | None":
     top1 = (max(payers.values()) / total) if payers else 1.0
     identical = _identical_ratio(amounts)
     # Wash signatures: paid by a tiny cluster, or one wallet dominates, or the same
-    # amount is replayed over and over.
-    if (dp <= 3 and tx >= 10) or top1 >= 0.60 or identical >= 0.90:
+    # amount is replayed over and over. Delegated so the ceiling cannot disagree.
+    if _looks_washed(s):
         return Signal("settlement", -30,
             f"On-chain settlements look washed: {dp} distinct payer(s), top-1 wallet "
             f"{top1:.0%} of volume, {identical:.0%} identical amounts.", "critical", cap=44)

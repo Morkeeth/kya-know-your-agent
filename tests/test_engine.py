@@ -535,3 +535,82 @@ def test_operator_rows_are_colour_coded_by_verdict():
     assert "#FF5247" in farm and "ONE FACE" in farm      # red
     assert "#D9F94C" in biz and "BUSINESS" in biz        # lime
     assert "#FF5247" not in biz
+
+
+# ------------------------------------------------- volume basis: measured vs floor
+# Ground truth (real agents, 2026-07-15): Otto #2118 = 220 sales across 40 services
+# priced 0.001-0.15 (150x spread) -> floor $0.22 vs real takings nearer $11.
+# Explorer #2023 = 941 sales, 19 services, 1.5e-05-7.5e-05 -> floor $0.0141.
+# Median == min on BOTH (fee curves are skewed cheap), so "median fixes it" is false.
+
+def _settle(vol, payers=6, amounts=None):
+    """Build a settlement payload with the REAL shape: payers is {addr: total}, not a count.
+
+    Two fixture bugs already caught by the engine here, both mine:
+      1. six identical amounts -> correctly read as a replay wash, fell back to floor.
+      2. distinct_payers=1 while the payer book held six addresses -> self-contradictory;
+         the book, not the label, drives top-1 concentration.
+    So: the book is DERIVED from `payers` and the amounts VARY. If a fixture has to lie to
+    pass, the code is right and the test is wrong.
+    """
+    if amounts is None:
+        share = vol / 6.0
+        amounts = [share * m for m in (0.4, 0.7, 0.9, 1.1, 1.4, 1.5)]
+    book: dict = {}
+    for i, a in enumerate(amounts):
+        addr = f"0x{(i % max(1, payers)):040x}"      # spread tx across exactly `payers` wallets
+        book[addr] = book.get(addr, 0.0) + a
+    return {"onchain_volume": vol, "distinct_payers": len(book),
+            "payers": book, "amounts": amounts, "tx_count": len(amounts)}
+
+
+def test_decoy_service_cannot_inflate_the_ceiling():
+    """THE security property. Listing a service is free, so any statistic an attacker can
+    RAISE by adding one is inflatable. Min is the unique fee statistic adding a service can
+    only lower. Attack: wash-trade a 0.001 service, then list a 500-USDT decoy nobody buys."""
+    from oracle.engine import _volume_basis
+    honest, _, _, _ = _volume_basis(100, [0.001], None)
+    with_decoy, _, _, _ = _volume_basis(100, [0.001, 500.0], None)
+    assert with_decoy == honest == 0.1          # the decoy bought the attacker nothing
+    # and the alternatives we rejected would have handed them the marketplace:
+    import statistics
+    assert 100 * statistics.median([0.001, 500.0]) == 25000.05
+
+
+def test_measured_onchain_volume_beats_the_floor():
+    """The real fix: stop estimating. Otto's floor is $0.22; measured says what moved."""
+    from oracle.engine import _volume_basis
+    vol, _, basis, txt = _volume_basis(220, [0.001, 0.15], _settle(11.03))
+    assert basis == "measured" and vol == 11.03
+    assert "distinct payers" in txt and "measured, not estimated" in txt
+
+
+def test_washed_settlement_is_not_trusted_as_volume():
+    """Measured only beats estimated when the money is real. One payer replaying an
+    identical amount is not volume, it is a wash, and must NOT raise the ceiling."""
+    from oracle.engine import _volume_basis
+    v1, _, b1, _ = _volume_basis(100, [0.001], _settle(50.0, payers=1))
+    assert b1 == "floor" and v1 == 0.1          # single payer -> ignored
+    v2, _, b2, _ = _volume_basis(100, [0.001], _settle(50.0, payers=4, amounts=[12.5] * 8))
+    assert b2 == "floor" and v2 == 0.1          # identical amounts replayed -> ignored
+
+
+def test_floor_discloses_the_band_only_when_fees_actually_spread():
+    """An honest multi-tier agent must not be silently libelled as unproven: say the
+    number is a floor. But a uniform-fee agent has no ambiguity, so no noise."""
+    from oracle.engine import _volume_basis
+    _, _, _, wide = _volume_basis(220, [0.001, 0.15], None)
+    _, _, _, flat = _volume_basis(390, [0.002, 0.002], None)
+    assert "this is the floor" in wide and "0.001-0.15" in wide
+    assert "floor" not in flat
+
+
+def test_measured_ceiling_reaches_a_real_number():
+    """End to end: the wedge only means something if measured volume moves the dollars."""
+    ep = "https://svc.example.com/api"
+    floor = score_agent(_asp(salesCount=220), _svc(ep, fee="0.001"), _healthy(ep))
+    meas = score_agent(_asp(salesCount=220), _svc(ep, fee="0.001"), _healthy(ep),
+                       settlement=_settle(11.03))
+    assert meas.max_safe_usd > floor.max_safe_usd * 20
+    assert meas.evidence["volumeBasis"] == "measured"
+    assert floor.evidence["volumeBasis"] == "floor"
