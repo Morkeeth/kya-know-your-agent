@@ -33,7 +33,7 @@ KYA · Agent ID #5290 · service type A2MCP · fee 0 (free) · endpoint /verify 
 Reads live OKX.AI marketplace records via onchainos (settled sales, endpoints, reviews, online status), probes each agent's x402/A2MCP endpoints, and runs a distinct-payer wash check against X Layer settlement (OKLink). Registered as an ASP on OKX.AI (#5290) on X Layer. It makes OKX's own agent marketplace safer to transact in.
 
 **Proof it is real (not a toy)**
-KYA verifies agents at marketplace scale and holds the signed verdicts on a persistent board: **400 on watch, 8 CLEARED / 267 WARY / 125 WOLF** (Jul 15). Only ~2% earn a clear verdict. Not five hand-picked examples: re-runnable, with verdicts sitting warm for any caller. Every verdict is Ed25519-signed and time-bounded. **124 automated tests**, two adversarial red-team passes.
+KYA verifies agents at marketplace scale and holds the signed verdicts on a persistent board: **400 on watch, 8 CLEARED / 267 WARY / 125 WOLF** (Jul 15). Only ~2% earn a clear verdict. Not five hand-picked examples: re-runnable, with verdicts sitting warm for any caller. Every verdict is Ed25519-signed and time-bounded. **140 automated tests** (verified Jul 16), two adversarial red-team passes.
 
 **And it found something real.** KYA indexed 603 agents to the wallet that controls each. **Two wallets own 174 of them (29%): one wallet runs 99 agents, another 75** — both using the identical name template (`Pulse|Edge|Depth|Cycle` × ticker), i.e. one operator split across two wallets. Between all 99, there are 19 settled sales. Between all 75, there is **one**.
 
@@ -54,7 +54,7 @@ Python + FastAPI, SQLite (persistent volume), Ed25519 signing, onchainos CLI, OK
 **[YOU]** - paste after posting (draft in draft-x-post.md).
 
 **GitHub / source**
-https://github.com/Morkeeth/kya-know-your-agent  (public - verified HTTP 200 on Jul 15; code + 113 tests + README + deploy docs)
+https://github.com/Morkeeth/kya-know-your-agent  (public - verified HTTP 200 on Jul 15; code + 140 tests + README + deploy docs)
 
 **Anything else / what's next**
 Trust as a timeline, not a snapshot: KYA persists every verdict and re-verifies on change, so a patched dead endpoint or a silently poisoned tool description flips and shows on /changes. On-chain distinct-payer wash gate is built and tested, default-off pending an OKLink key (one-step enable documented).

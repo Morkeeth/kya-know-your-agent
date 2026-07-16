@@ -12,6 +12,8 @@ Everyone else returns a score. KYA returns **`max_safe_usd`**: the largest singl
 curl "https://kya-production-f846.up.railway.app/verify?agentId=2118"   # Otto AI -> SAFE, signed
 ```
 
+**Real, not a demo.** The free `/verify` speaks x402 (an unpaid probe gets a `402` challenge, not a `200`), and the paid tier **`/audit` settles real USDT** — `$0.10` on X Layer through OKX's own facilitator (`okxweb3-app-x402`), verified on-chain before the audit is served. Money actually moves through the listed endpoint; it is not a mock. And every `/verify` now returns a machine-readable **`cluster`** field, so a calling agent can branch on operator concentration without parsing prose.
+
 ---
 
 ## The problem (why this is necessary)
@@ -74,8 +76,25 @@ exposes it, and search is keyword-matched and never returns unlisted agents — 
 of the 99. Enumeration found all 99, in ten seconds. That gap *is* the product: KYA prices
 the **operator**, not the listing.
 
+This is no longer a slide — it's a **live field**. Every `/verify` returns
+`evidence.cluster` (`owner`, `fleet_size`, `fleet_sales`, `sales_per_agent`, `penalized`,
+`risk`), and `/operators` renders the whole marketplace grouped by controlling wallet — the
+one view OKX's own UI structurally cannot draw.
+
 And the guard matters as much as the catch: two other wallets run 32 and 7 agents with real
 customers. They are **disclosed and not penalised**. Fleet size alone is never fraud.
+
+### Why this wins where the others can't
+
+The rest of the agent-trust field evaluates a **single listing in isolation**: ERC-8004
+reputation registries and star ratings aggregate reviews (gameable by a ring, and KYA
+audits *who* reviewed whom); delivery-proof services like ProofGate verify a *deliverable*
+after the fact. None of them can tell you that the "independent provider" you are about to
+pay is **1 of 99 shells on one wallet with 19 sales between them** — because the marketplace
+search API hides `ownerAddress`. KYA reconstructs the operator graph the platform won't
+show you, and prices the wallet behind the listing. That is the defensible gap. The priced
+`max_safe_usd` ceiling is the second wedge (a decision, not an opinion), but the operator
+graph is the moat.
 
 ## Trust is cryptographic, and a timeline
 
@@ -107,9 +126,12 @@ oracle/
   signing.py     Ed25519 sign/verify of the verdict digest + freshness window.
   store.py       SQLite: verdict history, re-verify-on-change transitions, uptime.
   watchtower.py  The live verdict board (KYA passport identity).
-app.py           FastAPI: /verify /pubkey /health /passport /seal /history /changes /watchtower
-scripts/         demo_caller, demo_flip, demo_poison, smoke, demo.sh
-tests/           113 tests incl. wash-trade, dead-endpoint, SSRF, and tool-poisoning regressions.
+app.py           FastAPI: /verify (free, x402-speaking) · /audit (PAID, real USDT via x402) ·
+                 /operators (marketplace by controlling wallet) · /pubkey /health /passport
+                 /seal /history /changes /watchtower
+scripts/         demo_caller, demo_flip, demo_poison, index_owners (operator sweep), smoke, demo.sh
+tests/           140 tests (verified Jul 16) incl. wash-trade, dead-endpoint, SSRF, owner-cluster,
+                 and tool-poisoning regressions.
 ```
 
 `engine.py` has no network or subprocess dependency - the part that decides "should money move" is small, pure, and adversarially tested (two red-team passes; every fix locked with a regression).
@@ -120,7 +142,7 @@ tests/           113 tests incl. wash-trade, dead-endpoint, SSRF, and tool-poiso
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 python cli.py 2118           # Otto AI -> SAFE   (needs the `onchainos` CLI on PATH)
 uvicorn app:app --port 8000  # then: curl localhost:8000/verify?agentId=2118
-pytest -q                    # 113 tests
+pytest -q                    # 140 tests (verified Jul 16)
 ```
 
 Env knobs (`.env.example`): `ORACLE_SIGNING_KEY` (stable signatures across redeploys), `KYA_DB_PATH` (persist history on a volume), `PROBE_TIMEOUT`, `CACHE_TTL`, `KYA_SETTLEMENT` + `OKLINK_API_KEY` (enable the on-chain wash gate).
