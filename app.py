@@ -33,6 +33,16 @@ app = FastAPI(
 
 _signer = Signer()
 
+# --- PAID tier: mount /audit behind real x402 (OKX facilitator) if creds are present. ---
+# Scoped to /audit ONLY; the free /verify under review is never touched. If creds are
+# absent or the SDK is missing, the middleware is simply not added and the app runs free.
+from oracle import audit_paid  # noqa: E402
+_paid_mw, _paid_reason = audit_paid.build_paid_middleware()
+if _paid_mw is not None:
+    app.middleware("http")(_paid_mw)
+import sys as _sys  # noqa: E402
+print(f"[kya] paid tier: {_paid_reason}", file=_sys.stderr)
+
 # Locks down the SVG document surface; img-src data: allows the embedded logo.
 _SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
 
@@ -170,6 +180,29 @@ async def verify(
     body["pronouncement"] = pronounce(v)   # KYA's voice (decoration; not signed)
     body["signature"] = env
     return JSONResponse(body)
+
+
+@app.api_route("/audit", methods=["GET", "POST"])
+async def audit(request: Request,
+                agentId: str | None = Query(default=None),
+                name: str | None = Query(default=None)) -> JSONResponse:
+    """PAID full audit ($0.10 USDT via x402). The x402 middleware gates this route: an
+    unpaid call never reaches here (it gets the facilitator's 402); a verified-paid call
+    does. So by the time we run, payment is real and settled — we just serve the depth."""
+    aid, nm = agentId, name
+    if request.method == "POST" and not (aid or nm):
+        try:
+            payload = json.loads(await request.body() or b"{}")
+            args = payload.get("params", {})
+            args = args.get("arguments", args) if isinstance(args, dict) else {}
+            src = {**(args if isinstance(args, dict) else {}), **payload}
+            for k in ("agentId", "agent_id", "id"):
+                if src.get(k) is not None:
+                    aid = str(src[k]); break
+        except Exception:
+            pass
+    v, env = _verdict_for(_resolve(aid, nm))
+    return JSONResponse(audit_paid.full_audit(v.agent_id, v, env))
 
 
 @app.get("/seal")
