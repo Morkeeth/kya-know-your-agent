@@ -361,6 +361,8 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     # and this agent has none either, and it always names the evidence that fired. A fleet
     # that actually sells keeps its reputation, and a shell that earns real settled volume
     # heals out of the penalty on the next re-verify.
+    cluster_summary = None      # machine-readable operator-concentration signal (see below)
+    fleet_penalized = False
     if fleet:
         known = _to_int(fleet.get("known_agents")) or 0
         fleet_sales = _to_int(fleet.get("total_sales")) or 0
@@ -398,6 +400,7 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
                 f"including this one — {'; '.join(evidence)}. Not an independent provider: "
                 f"you are trusting one operator, not {known} reputations.",
                 "warn", cap=cap))
+            fleet_penalized = True
         elif known >= 5:
             # Named, not penalised. A multi-agent operator that actually sells is a
             # business, and the buyer still deserves to know the concentration exists.
@@ -405,6 +408,27 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
                 f"Owner runs {known} known agents ({fleet_sales} settled sales across them) — "
                 f"concentration disclosed, no penalty: the fleet has real customers.",
                 "info"))
+
+        # First-class, machine-readable operator-concentration signal. The prose above
+        # lands in `signals` for a human; this `cluster` object lets a CALLING agent
+        # branch programmatically ("if cluster.penalized, demand more settled volume")
+        # instead of parsing a sentence. It is pure disclosure derived from the fleet
+        # index — it never moves the score (the signals above already did that) and is
+        # deliberately out of the signed core, exactly like the rest of `evidence`.
+        # OKX's own `agent search` never returns ownerAddress, so this is the one place
+        # a buyer can see that N "independent providers" are one wallet.
+        if known >= 2:
+            cluster_summary = {
+                "owner": str(fleet.get("owner") or ""),
+                "fleet_size": known,                       # agents on this wallet KYA has seen
+                "fleet_sales": fleet_sales,                # settled sales across the whole fleet
+                "sales_per_agent": round(per_agent, 2),
+                "templated_names": templated,              # names machine-generated from a template
+                "penalized": fleet_penalized,
+                # high = penalty fired (farm), disclosed = big but has real customers,
+                # low = concentration exists but below the disclosure threshold.
+                "risk": "high" if fleet_penalized else "disclosed" if known >= 5 else "low",
+            }
 
     # ---- A2: audit reputation by WHO reviewed, not the aggregate star average ----
     if feedback:
@@ -504,6 +528,9 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         "settledVolume": round(volume, 6),
         "feeSpread": (round(max(paid_fees) / eff_fee, 1)
                       if paid_fees and eff_fee else None),
+        # Supply-side sybil disclosure: who ELSE this agent's wallet controls. None when
+        # the wallet is unknown or runs only this agent. See the `cluster_summary` block.
+        "cluster": cluster_summary,
     }
 
     v = Verdict(agent_id=aid, name=name, verdict=verdict, score=score,

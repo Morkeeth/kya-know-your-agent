@@ -502,6 +502,45 @@ def test_no_fleet_data_changes_nothing():
     assert "owner_fleet" not in _keys(a) and "owner_fleet" not in _keys(b)
 
 
+# ---- cluster_risk: the fleet finding as a MACHINE-READABLE field, not just prose ----
+# "1 wallet owns 99 agents" has to be something a calling agent can branch on, not a
+# sentence it has to parse. evidence.cluster is that structured signal.
+
+def test_cluster_field_flags_a_farm():
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=0), _svc(ep), _healthy(ep), fleet=_fleet(99))
+    c = v.evidence.get("cluster")
+    assert c is not None
+    assert c["fleet_size"] == 99
+    assert c["penalized"] is True
+    assert c["risk"] == "high"
+    assert c["owner"] == "0xdead0000000000000000000000000000beef0001"
+
+
+def test_cluster_field_discloses_real_business_without_penalty():
+    """A real 32-agent operator with sales: disclosed, but risk is NOT 'high'."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=42), _svc(ep), _healthy(ep), fleet=_fleet(32, sales=69))
+    c = v.evidence.get("cluster")
+    assert c is not None
+    assert c["penalized"] is False
+    assert c["risk"] == "disclosed"
+
+
+def test_cluster_field_absent_without_fleet():
+    """Unknown wallet -> no cluster claim at all (never invent one)."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=0), _svc(ep), _healthy(ep), fleet=None)
+    assert v.evidence.get("cluster") is None
+
+
+def test_cluster_field_absent_for_solo_operator():
+    """A wallet KYA has only ever seen run ONE agent is not a cluster."""
+    ep = "https://svc.example.com/api"
+    v = score_agent(_asp(salesCount=0), _svc(ep), _healthy(ep), fleet=_fleet(1))
+    assert v.evidence.get("cluster") is None
+
+
 def test_distinct_names_never_trip_the_template_rule():
     """An operator with genuinely distinct names can't be convicted on naming alone."""
     from oracle.engine import _templated_count
