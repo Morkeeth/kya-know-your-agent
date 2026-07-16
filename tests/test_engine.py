@@ -670,4 +670,10 @@ def test_verify_answers_post_not_just_get():
     c = TestClient(A.app)
     assert c.post("/verify").status_code == 200            # their exact self-check
     assert c.post("/verify").json()["ok"] is True
+    # And a bare GET too: the first fix only covered POST, so a GET probe still got 400 —
+    # which is what the marketplace hire probe actually hit. Approved agents split on verb
+    # (Otto answers POST, SlowMist answers GET, both live), so BOTH must answer.
+    assert c.get("/verify").status_code == 200
+    assert c.get("/verify").json()["ok"] is True
     assert c.post("/verify", json={"agentId": "junk"}).status_code == 400   # real errors still error
+    assert c.get("/verify?agentId=junk").status_code == 400

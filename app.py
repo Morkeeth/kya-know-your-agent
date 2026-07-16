@@ -94,23 +94,28 @@ async def verify(
     agentId: str | None = Query(default=None, description="OKX.AI agent id, e.g. 2118"),
     name: str | None = Query(default=None, description="ASP name to resolve, e.g. 'Otto AI'"),
 ) -> JSONResponse:
-    """The trust verdict. MUST answer POST as well as GET.
+    """The trust verdict. Answers BOTH verbs, and answers a bare probe with 200.
 
-    Why: OKX.AI's A2MCP contract is POST. Their docs' own self-check is verbatim
-    `curl -i -X POST https://your-domain/your-path` -> "HTTP 200 + result". This route
-    was GET-only, so OKX's platform test POSTed, got 405 (`allow: GET`), the task timed
-    out, and listing #5290 sat "under review" for 63 HOURS while we theorised about a
-    stalled queue on their side. It was our bug the whole time. The tell was in our own
-    data on day one: probing Otto (a working agent) with GET returned 405 — because real
-    A2MCP services are POST-only — and we read past it.
+    Why #5290 was rejected ("during platform testing, we were unable to receive a response
+    from your Agent"): this route was GET-only AND 400'd a bare GET. So the platform test
+    got 405 on POST and 400 on GET — nothing usable either way.
 
-    Accepts the agent id from anywhere a caller might reasonably put it: query string,
-    JSON body ({"agentId": "2118"} / {"agent_id": …} / {"id": …} / MCP-style
-    {"params": {"arguments": {...}}}), or form body. A trust oracle that 405s the
-    caller is a trust oracle nobody can call.
+    Measured against live APPROVED agents rather than assumed (2026-07-16), because the
+    first two theories here were both wrong:
+      Otto #2118       bare POST -> 402   bare GET -> 405
+      SlowMist #2155   bare POST -> 405   bare GET -> 402   (fee 0)
+      MarketBrew #2080 bare GET  -> 200                     (fee 0)
+    There is NO standard verb — Otto is POST-shaped, SlowMist is GET-shaped, both approved.
+    So "A2MCP is POST-only" (this docstring's previous claim) is false. What every approved
+    agent has in common is that at least one verb answers usefully and none answer 400.
+    KYA answered neither. That was the defect.
+
+    Accepts the agent id from query string, JSON body ({"agentId"|"agent_id"|"id"}),
+    MCP tools/call ({"params":{"arguments":{...}}}), or form body. A trust oracle that
+    405s or 400s the caller is a trust oracle nobody can call.
     """
     aid, nm = agentId, name
-    if request.method == "POST" and not (aid or nm):
+    if not (aid or nm):
         payload: dict = {}
         try:
             raw = await request.body()
@@ -135,12 +140,17 @@ async def verify(
                 if src.get(k) is not None:
                     nm = str(src[k])
                     break
-        # A BARE POST is OKX's liveness probe, not a malformed call. Their docs' self-check
-        # is literally `curl -i -X POST <endpoint>` with no arguments, expecting
-        # "HTTP 200 + result". Answering 400 there reads as a broken service to the
-        # platform test. So: no body at all -> 200 + a usable service descriptor (the
-        # honest "result" of asking KYA about nobody is "here is what I need"). A POST
-        # that DOES carry a body but names no agent is a real client error and still 400s.
+        # A BARE request on EITHER verb is a probe, not a malformed call, and must answer
+        # 200 + a usable descriptor. Evidence from live APPROVED agents (2026-07-16):
+        #   Otto #2118      bare POST -> 402   bare GET -> 405   (paid, POST-shaped)
+        #   SlowMist #2155  bare POST -> 405   bare GET -> 402   (fee 0, GET-shaped)
+        #   MarketBrew #2080 bare GET -> 200                     (fee 0, plain result)
+        # There is NO standard verb: Otto answers POST, SlowMist answers GET, and both are
+        # approved. What they have in common is that ONE verb answers usefully. KYA answered
+        # NEITHER — 405 on POST and 400 on GET — which is why the platform test got nothing
+        # and #5290 was rejected. So both verbs now answer. We do not fake a 402: the service
+        # is genuinely free (fee 0), and MarketBrew proves an approved fee-0 service returns
+        # 200. A 402 would be claiming payment terms we do not charge.
         if not aid and not nm and not payload:
             return JSONResponse({
                 "ok": True,
