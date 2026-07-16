@@ -659,21 +659,30 @@ def test_unlaunched_startup_is_not_called_a_sybil_farm():
 
 
 # ------------------------------------------------ the 63-hour bug: /verify must accept POST
-def test_verify_answers_post_not_just_get():
-    """OKX rejected listing #5290 with "unable to receive a response from your Agent".
-    Cause: /verify was GET-only, so their A2MCP platform test POSTed and got 405
-    (`allow: GET`). Their docs' self-check is verbatim `curl -i -X POST <endpoint>` ->
-    "HTTP 200 + result". A bare POST is their LIVENESS PROBE and must return 200, not 400.
-    We theorised for 63h about a stalled queue on their side. It was ours."""
+def test_verify_speaks_x402_unpaid_402_paid_200():
+    """The full #5290 saga in one test. The listed service is gated by x402:
+      - unpaid request (no X-PAYMENT), either verb -> 402 with a valid challenge
+      - paid request (X-PAYMENT present) -> the verdict, 200
+    Measured contract from approved fee-0 SlowMist #2155: challenge amount "0" USDT/XLayer.
+    KYA previously 405'd POST, then 400'd GET, then 200'd unpaid — all three block the hire.
+    """
+    import base64, json as _json
     from fastapi.testclient import TestClient
     import app as A
     c = TestClient(A.app)
-    assert c.post("/verify").status_code == 200            # their exact self-check
-    assert c.post("/verify").json()["ok"] is True
-    # And a bare GET too: the first fix only covered POST, so a GET probe still got 400 —
-    # which is what the marketplace hire probe actually hit. Approved agents split on verb
-    # (Otto answers POST, SlowMist answers GET, both live), so BOTH must answer.
-    assert c.get("/verify").status_code == 200
-    assert c.get("/verify").json()["ok"] is True
-    assert c.post("/verify", json={"agentId": "junk"}).status_code == 400   # real errors still error
-    assert c.get("/verify?agentId=junk").status_code == 400
+
+    for verb in ("get", "post"):
+        r = getattr(c, verb)("/verify")
+        assert r.status_code == 402, f"{verb} unpaid must 402, got {r.status_code}"
+        ch = _json.loads(base64.b64decode(r.headers["payment-required"]))
+        acc = ch["accepts"][0]
+        assert ch["x402Version"] == 2
+        assert acc["amount"] == "0"                 # genuinely free
+        assert acc["extra"]["name"] == "USDT"       # supported token (USDT/USDG only)
+        assert acc["network"] == "eip155:196"       # XLayer
+
+    paid = c.post("/verify", headers={"X-PAYMENT": "zero-amount-ok"}, json={"agentId": "2118"})
+    assert paid.status_code == 200 and paid.json()["verdict"] in ("SAFE", "CAUTION", "BLOCK")
+
+    assert c.get("/watchtower").status_code == 200
+    assert c.get("/operators").status_code == 200

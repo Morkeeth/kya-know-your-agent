@@ -23,6 +23,7 @@ from oracle.verify import assess
 from oracle.persona import pronounce, TAGLINE
 from oracle.seal import render_stamp, render_passport
 from oracle.signing import Signer
+from oracle import x402
 
 app = FastAPI(
     title="KYA - Know Your Agent",
@@ -94,26 +95,39 @@ async def verify(
     agentId: str | None = Query(default=None, description="OKX.AI agent id, e.g. 2118"),
     name: str | None = Query(default=None, description="ASP name to resolve, e.g. 'Otto AI'"),
 ) -> JSONResponse:
-    """The trust verdict. Answers BOTH verbs, and answers a bare probe with 200.
+    """The listed trust-verdict service, gated by x402.
 
-    Why #5290 was rejected ("during platform testing, we were unable to receive a response
-    from your Agent"): this route was GET-only AND 400'd a bare GET. So the platform test
-    got 405 on POST and 400 on GET — nothing usable either way.
+    #5290's rejection ("unable to receive a response from your Agent") walked through three
+    wrong theories before the real contract, each corrected by probing a LIVE APPROVED agent
+    instead of reasoning:
+      1. "OKX queue stall"  — no; the endpoint 405'd their POST test.
+      2. "A2MCP is POST-only" — no; SlowMist #2155 is GET-shaped, 405s POST, and is approved.
+         The real defect was answering NOTHING usable: 405 on POST, 400 on GET.
+      3. "free service returns 200" — no; the marketplace hire path runs x402, and an
+         unpaid call must return 402 + terms, not 200. SlowMist (fee 0, approved) proves it:
+         its challenge is `amount:"0"` USDT on XLayer. 200-to-unpaid is "live and wrong".
 
-    Measured against live APPROVED agents rather than assumed (2026-07-16), because the
-    first two theories here were both wrong:
-      Otto #2118       bare POST -> 402   bare GET -> 405
-      SlowMist #2155   bare POST -> 405   bare GET -> 402   (fee 0)
-      MarketBrew #2080 bare GET  -> 200                     (fee 0)
-    There is NO standard verb — Otto is POST-shaped, SlowMist is GET-shaped, both approved.
-    So "A2MCP is POST-only" (this docstring's previous claim) is false. What every approved
-    agent has in common is that at least one verb answers usefully and none answer 400.
-    KYA answered neither. That was the defect.
-
-    Accepts the agent id from query string, JSON body ({"agentId"|"agent_id"|"id"}),
-    MCP tools/call ({"params":{"arguments":{...}}}), or form body. A trust oracle that
-    405s or 400s the caller is a trust oracle nobody can call.
+    So: unpaid -> 402 challenge (handled above). Paid (X-PAYMENT present) -> the verdict.
+    Amount is 0, so KYA stays genuinely free; nothing settles. The agent id comes from the
+    query string, JSON body ({"agentId"|"agent_id"|"id"}), MCP tools/call
+    ({"params":{"arguments":{...}}}), or form body.
     """
+    # x402 GATE (the marketplace hire path). An unpaid request MUST get 402 + terms, not
+    # 200 and not 400. Measured from the approved fee-0 comparable SlowMist #2155: its
+    # challenge is amount "0" USDT on XLayer. KYA stays free (nothing settles) but must
+    # speak x402 or the marketplace probe reports valid:false and blocks the hire.
+    if not x402.is_paid(request.headers):
+        resource = str(request.url).split("?")[0]
+        return JSONResponse(
+            x402.challenge(resource),
+            status_code=402,
+            headers={
+                "payment-required": x402.challenge_header(resource),
+                "access-control-expose-headers": "PAYMENT-REQUIRED,PAYMENT-RESPONSE",
+                "access-control-allow-origin": "*",
+            },
+        )
+
     aid, nm = agentId, name
     if not (aid or nm):
         payload: dict = {}
@@ -140,24 +154,14 @@ async def verify(
                 if src.get(k) is not None:
                     nm = str(src[k])
                     break
-        # A BARE request on EITHER verb is a probe, not a malformed call, and must answer
-        # 200 + a usable descriptor. Evidence from live APPROVED agents (2026-07-16):
-        #   Otto #2118      bare POST -> 402   bare GET -> 405   (paid, POST-shaped)
-        #   SlowMist #2155  bare POST -> 405   bare GET -> 402   (fee 0, GET-shaped)
-        #   MarketBrew #2080 bare GET -> 200                     (fee 0, plain result)
-        # There is NO standard verb: Otto answers POST, SlowMist answers GET, and both are
-        # approved. What they have in common is that ONE verb answers usefully. KYA answered
-        # NEITHER — 405 on POST and 400 on GET — which is why the platform test got nothing
-        # and #5290 was rejected. So both verbs now answer. We do not fake a 402: the service
-        # is genuinely free (fee 0), and MarketBrew proves an approved fee-0 service returns
-        # 200. A 402 would be claiming payment terms we do not charge.
+        # Paid, but no agent named: the caller settled the (zero) challenge and asked about
+        # nobody. Return a usable descriptor rather than 400, so a paid liveness probe passes.
         if not aid and not nm and not payload:
             return JSONResponse({
                 "ok": True,
                 "service": "KYA - Know Your Agent",
                 "what": TAGLINE,
-                "usage": {"method": "POST", "body": {"agentId": "2118"}},
-                "example": "curl -X POST <endpoint> -d '{\"agentId\":\"2118\"}' -H 'Content-Type: application/json'",
+                "usage": {"body": {"agentId": "2118"}},
                 "returns": ["verdict SAFE|CAUTION|BLOCK", "score", "max_safe_usd", "signature"],
                 "verify_offline": "/pubkey",
             })
