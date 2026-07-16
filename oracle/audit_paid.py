@@ -36,7 +36,11 @@ def build_paid_middleware():
     if not (key and secret and passphrase):
         return None, "no OKX creds in env — /audit not mounted (free tier unaffected)"
     try:
-        from x402.http import (OKXFacilitatorClientSync, OKXFacilitatorConfig,
+        # ASYNC facilitator — the FastAPI middleware builds the async x402ResourceServer,
+        # which does `await facilitator.verify(...)` / `.settle(...)`. The Sync client's
+        # verify returns a plain VerifyResponse, so awaiting it throws
+        # "object VerifyResponse can't be used in 'await'" (the settle 500 on Jul 16).
+        from x402.http import (OKXFacilitatorClient, OKXFacilitatorConfig,
                                OKXAuthConfig, PaymentOption, RouteConfig)
         from x402.http.middleware.fastapi import payment_middleware_from_config
     except Exception as e:  # SDK not installed / import error
@@ -44,7 +48,7 @@ def build_paid_middleware():
 
     try:
         auth = OKXAuthConfig(api_key=key, secret_key=secret, passphrase=passphrase)
-        facilitator = OKXFacilitatorClientSync(OKXFacilitatorConfig(auth=auth))
+        facilitator = OKXFacilitatorClient(OKXFacilitatorConfig(auth=auth))
         route = RouteConfig(
             accepts=[PaymentOption(
                 scheme="exact",
