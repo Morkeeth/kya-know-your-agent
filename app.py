@@ -12,7 +12,8 @@ import os
 
 import time
 
-from fastapi import FastAPI, HTTPException, Query
+import json
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 
 from oracle import AgentNotFound
@@ -87,12 +88,70 @@ def pubkey() -> dict:
     return {"alg": "ed25519", "pubkey": _signer.public_key_hex}
 
 
-@app.get("/verify")
-def verify(
+@app.api_route("/verify", methods=["GET", "POST"])
+async def verify(
+    request: Request,
     agentId: str | None = Query(default=None, description="OKX.AI agent id, e.g. 2118"),
     name: str | None = Query(default=None, description="ASP name to resolve, e.g. 'Otto AI'"),
 ) -> JSONResponse:
-    v, env = _verdict_for(_resolve(agentId, name))
+    """The trust verdict. MUST answer POST as well as GET.
+
+    Why: OKX.AI's A2MCP contract is POST. Their docs' own self-check is verbatim
+    `curl -i -X POST https://your-domain/your-path` -> "HTTP 200 + result". This route
+    was GET-only, so OKX's platform test POSTed, got 405 (`allow: GET`), the task timed
+    out, and listing #5290 sat "under review" for 63 HOURS while we theorised about a
+    stalled queue on their side. It was our bug the whole time. The tell was in our own
+    data on day one: probing Otto (a working agent) with GET returned 405 — because real
+    A2MCP services are POST-only — and we read past it.
+
+    Accepts the agent id from anywhere a caller might reasonably put it: query string,
+    JSON body ({"agentId": "2118"} / {"agent_id": …} / {"id": …} / MCP-style
+    {"params": {"arguments": {...}}}), or form body. A trust oracle that 405s the
+    caller is a trust oracle nobody can call.
+    """
+    aid, nm = agentId, name
+    if request.method == "POST" and not (aid or nm):
+        payload: dict = {}
+        try:
+            raw = await request.body()
+            if raw:
+                try:
+                    payload = json.loads(raw)
+                except ValueError:
+                    form = await request.form()
+                    payload = dict(form)
+        except Exception:
+            payload = {}
+        if isinstance(payload, dict):
+            # MCP tools/call shape nests the real args; unwrap before looking.
+            args = payload.get("params", {})
+            args = args.get("arguments", args) if isinstance(args, dict) else {}
+            src = {**(args if isinstance(args, dict) else {}), **payload}
+            for k in ("agentId", "agent_id", "agentID", "id"):
+                if src.get(k) is not None:
+                    aid = str(src[k])
+                    break
+            for k in ("name", "aspName", "agentName"):
+                if src.get(k) is not None:
+                    nm = str(src[k])
+                    break
+        # A BARE POST is OKX's liveness probe, not a malformed call. Their docs' self-check
+        # is literally `curl -i -X POST <endpoint>` with no arguments, expecting
+        # "HTTP 200 + result". Answering 400 there reads as a broken service to the
+        # platform test. So: no body at all -> 200 + a usable service descriptor (the
+        # honest "result" of asking KYA about nobody is "here is what I need"). A POST
+        # that DOES carry a body but names no agent is a real client error and still 400s.
+        if not aid and not nm and not payload:
+            return JSONResponse({
+                "ok": True,
+                "service": "KYA - Know Your Agent",
+                "what": TAGLINE,
+                "usage": {"method": "POST", "body": {"agentId": "2118"}},
+                "example": "curl -X POST <endpoint> -d '{\"agentId\":\"2118\"}' -H 'Content-Type: application/json'",
+                "returns": ["verdict SAFE|CAUTION|BLOCK", "score", "max_safe_usd", "signature"],
+                "verify_offline": "/pubkey",
+            })
+    v, env = _verdict_for(_resolve(aid, nm))
     body = v.to_dict()
     body["pronouncement"] = pronounce(v)   # KYA's voice (decoration; not signed)
     body["signature"] = env

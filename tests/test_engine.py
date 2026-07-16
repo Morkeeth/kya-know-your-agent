@@ -656,3 +656,18 @@ def test_unlaunched_startup_is_not_called_a_sybil_farm():
            "members": [{"name": f"Distinct{i}", "sold": 0} for i in range(25)]}
     v2 = score_agent(_asp(salesCount=0), _svc(ep), _healthy(ep), fleet=big)
     assert "owner_fleet" in _keys(v2)           # 25 unsold distinct agents is not a startup
+
+
+# ------------------------------------------------ the 63-hour bug: /verify must accept POST
+def test_verify_answers_post_not_just_get():
+    """OKX rejected listing #5290 with "unable to receive a response from your Agent".
+    Cause: /verify was GET-only, so their A2MCP platform test POSTed and got 405
+    (`allow: GET`). Their docs' self-check is verbatim `curl -i -X POST <endpoint>` ->
+    "HTTP 200 + result". A bare POST is their LIVENESS PROBE and must return 200, not 400.
+    We theorised for 63h about a stalled queue on their side. It was ours."""
+    from fastapi.testclient import TestClient
+    import app as A
+    c = TestClient(A.app)
+    assert c.post("/verify").status_code == 200            # their exact self-check
+    assert c.post("/verify").json()["ok"] is True
+    assert c.post("/verify", json={"agentId": "junk"}).status_code == 400   # real errors still error
