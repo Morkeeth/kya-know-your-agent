@@ -698,30 +698,47 @@ def test_unlaunched_startup_is_not_called_a_sybil_farm():
 
 
 # ------------------------------------------------ the 63-hour bug: /verify must accept POST
-def test_verify_speaks_x402_unpaid_402_paid_200():
-    """The full #5290 saga in one test. The listed service is gated by x402:
-      - unpaid request (no X-PAYMENT), either verb -> 402 with a valid challenge
-      - paid request (X-PAYMENT present) -> the verdict, 200
-    Measured contract from approved fee-0 SlowMist #2155: challenge amount "0" USDT/XLayer.
-    KYA previously 405'd POST, then 400'd GET, then 200'd unpaid — all three block the hire.
+def test_listed_free_service_returns_the_result_directly_not_402():
+    """The #5290 contract, quoted from OKX's A2MCP guide rather than inferred:
+
+        "① Free endpoint — returns the result directly on call; no billing, no x402."
+        Self-check: `curl -i -X POST` -> "Free type ✅ expected: HTTP 200 + result"
+        https://web3.okx.com/onchainos/dev-docs/okxai/howtomcp
+
+    #5290 is registered fee "0", so /verify is FREE and MUST answer 200 with the verdict.
+    It was rejected 2026-07-17 for exactly this: a 402 on a fee-0 service failed x402
+    validation AND timed out the platform's test (it will not pay a free service, so it
+    waited). The gate was added because approved fee-0 SlowMist #2155 was seen returning
+    402/amount:"0" — evidence of what is TOLERATED, promoted to a rule without reading the
+    one sentence that says the opposite. x402 lives on the PAID tier (/audit) only.
     """
-    import base64, json as _json
     from fastapi.testclient import TestClient
     import app as A
     c = TestClient(A.app)
 
     for verb in ("get", "post"):
-        r = getattr(c, verb)("/verify")
-        assert r.status_code == 402, f"{verb} unpaid must 402, got {r.status_code}"
-        ch = _json.loads(base64.b64decode(r.headers["payment-required"]))
-        acc = ch["accepts"][0]
-        assert ch["x402Version"] == 2
-        assert acc["amount"] == "0"                 # genuinely free
-        assert acc["extra"]["name"] == "USDT"       # supported token (USDT/USDG only)
-        assert acc["network"] == "eip155:196"       # XLayer
-
-    paid = c.post("/verify", headers={"X-PAYMENT": "zero-amount-ok"}, json={"agentId": "2118"})
-    assert paid.status_code == 200 and paid.json()["verdict"] in ("SAFE", "CAUTION", "BLOCK")
+        r = getattr(c, verb)("/verify", params={"agentId": "2118"})
+        assert r.status_code == 200, f"{verb} on the FREE service must be 200, got {r.status_code}"
+        assert r.json()["verdict"] in ("SAFE", "CAUTION", "BLOCK")
+        assert "payment-required" not in r.headers, "a fee-0 service must not issue a challenge"
 
     assert c.get("/watchtower").status_code == 200
     assert c.get("/operators").status_code == 200
+
+
+def test_jsonrpc_id_is_never_mistaken_for_an_agent_id():
+    """An MCP/JSON-RPC handshake was being answered with a real BLOCK verdict for "agent 1":
+    `{"jsonrpc":"2.0","id":1,"method":"initialize"}` -> the `id` fallback read 1 as an agent
+    id. A client that got a verdict instead of a protocol reply could not proceed, which is
+    one half of "unable to receive a response from your Agent" (measured 2026-07-17)."""
+    from fastapi.testclient import TestClient
+    import app as A
+    c = TestClient(A.app)
+
+    r = c.post("/verify", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    body = r.json()
+    assert body.get("agent_id") != "1", "JSON-RPC request id leaked in as an agent id"
+
+    # a plain body may still use bare `id` as a convenience alias
+    r2 = c.post("/verify", json={"id": "2118"})
+    assert r2.status_code == 200 and r2.json()["agent_id"] == "2118"

@@ -17,3 +17,6 @@ preview.html
 .listing-state
 .listing-watch.log
 .listing-fails
+
+# local ops tooling — private paths, never public
+scripts/watch-listing.sh

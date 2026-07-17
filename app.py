@@ -1,5 +1,5 @@
 """
-The Oracle - trust-verdict API for OKX.AI ASPs.
+KYA - Know Your Agent. Trust-verdict API for OKX.AI ASPs.
 
 A free A2MCP endpoint: another agent calls GET /verify before transacting with a
 counterparty ASP and gets back a signed SAFE/CAUTION/BLOCK verdict.
@@ -23,7 +23,6 @@ from oracle.verify import assess
 from oracle.persona import pronounce, TAGLINE
 from oracle.seal import render_stamp, render_passport
 from oracle.signing import Signer
-from oracle import x402
 
 app = FastAPI(
     title="KYA - Know Your Agent",
@@ -105,39 +104,32 @@ async def verify(
     agentId: str | None = Query(default=None, description="OKX.AI agent id, e.g. 2118"),
     name: str | None = Query(default=None, description="ASP name to resolve, e.g. 'Otto AI'"),
 ) -> JSONResponse:
-    """The listed trust-verdict service, gated by x402.
+    """The listed trust-verdict service. Registered fee 0 = FREE, so it returns the result
+    directly on HTTP 200. No x402 gate. That is the contract, quoted from OKX's A2MCP guide:
 
-    #5290's rejection ("unable to receive a response from your Agent") walked through three
-    wrong theories before the real contract, each corrected by probing a LIVE APPROVED agent
-    instead of reasoning:
-      1. "OKX queue stall"  — no; the endpoint 405'd their POST test.
-      2. "A2MCP is POST-only" — no; SlowMist #2155 is GET-shaped, 405s POST, and is approved.
-         The real defect was answering NOTHING usable: 405 on POST, 400 on GET.
-      3. "free service returns 200" — no; the marketplace hire path runs x402, and an
-         unpaid call must return 402 + terms, not 200. SlowMist (fee 0, approved) proves it:
-         its challenge is `amount:"0"` USDT on XLayer. 200-to-unpaid is "live and wrong".
+        "① Free endpoint — returns the result directly on call; no billing, no x402."
+        Self-check: `curl -i -X POST` → "Free type ✅ expected: HTTP 200 + result"
+        (https://web3.okx.com/onchainos/dev-docs/okxai/howtomcp)
 
-    So: unpaid -> 402 challenge (handled above). Paid (X-PAYMENT present) -> the verdict.
-    Amount is 0, so KYA stays genuinely free; nothing settles. The agent id comes from the
-    query string, JSON body ({"agentId"|"agent_id"|"id"}), MCP tools/call
-    ({"params":{"arguments":{...}}}), or form body.
+    This REVERSES the Jul 16 gate, and the reversal is the whole lesson. #5290 was rejected
+    2026-07-17 with "has not passed x402 standard validation" AND "unable to receive a
+    response from your Agent, causing the task to time out" — both because this free service
+    answered 402 to the platform's test. The platform has no reason to pay a fee-0 service,
+    so it waited and timed out.
+
+    The gate existed because SlowMist #2155 (fee 0, approved) was observed returning a 402
+    with `amount:"0"`, and that observation was promoted to a rule without ever reading the
+    doc, which says the opposite in one sentence. An approved agent's behaviour is evidence
+    of what is TOLERATED, never of what is REQUIRED. The docstring this replaces literally
+    listed "free service returns 200" as a wrong theory. It was the right one.
+
+    x402 belongs on the PAID tier only: /audit charges 0.10 USDT and answers 402 +
+    PAYMENT-REQUIRED via OKX's own SDK, which is exactly what the same guide specifies for
+    "② x402 pay-per-call".
+
+    Agent id comes from the query string, JSON body ({"agentId"|"agent_id"|"id"}), a nested
+    {"params":{"arguments":{...}}}, or a form body.
     """
-    # x402 GATE (the marketplace hire path). An unpaid request MUST get 402 + terms, not
-    # 200 and not 400. Measured from the approved fee-0 comparable SlowMist #2155: its
-    # challenge is amount "0" USDT on XLayer. KYA stays free (nothing settles) but must
-    # speak x402 or the marketplace probe reports valid:false and blocks the hire.
-    if not x402.is_paid(request.headers):
-        resource = str(request.url).split("?")[0]
-        return JSONResponse(
-            x402.challenge(resource),
-            status_code=402,
-            headers={
-                "payment-required": x402.challenge_header(resource),
-                "access-control-expose-headers": "PAYMENT-REQUIRED,PAYMENT-RESPONSE",
-                "access-control-allow-origin": "*",
-            },
-        )
-
     aid, nm = agentId, name
     if not (aid or nm):
         payload: dict = {}
@@ -152,11 +144,18 @@ async def verify(
         except Exception:
             payload = {}
         if isinstance(payload, dict):
-            # MCP tools/call shape nests the real args; unwrap before looking.
+            # A tools/call-shaped body nests the real args; unwrap before looking.
             args = payload.get("params", {})
             args = args.get("arguments", args) if isinstance(args, dict) else {}
             src = {**(args if isinstance(args, dict) else {}), **payload}
-            for k in ("agentId", "agent_id", "agentID", "id"):
+            # Bare "id" is a LAST resort and never trusted from a JSON-RPC envelope: an
+            # `{"jsonrpc":"2.0","id":1,"method":"initialize"}` handshake was being answered
+            # with a real BLOCK verdict for "agent 1" (measured 2026-07-17). Any caller
+            # speaking JSON-RPC means `id` as the request id, never as an agent id.
+            keys = ["agentId", "agent_id", "agentID"]
+            if not ("jsonrpc" in payload or "method" in payload):
+                keys.append("id")
+            for k in keys:
                 if src.get(k) is not None:
                     aid = str(src[k])
                     break

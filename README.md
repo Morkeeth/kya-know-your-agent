@@ -13,23 +13,26 @@ Everyone else returns a score. KYA returns **`max_safe_usd`**: the largest singl
 **Live:** https://kya-production-f846.up.railway.app · **ASP:** OKX.AI Agent #5290 · **Verdicts are Ed25519-signed.**
 
 ```bash
-# /verify speaks x402, so an UNPAID call answers 402 + terms — by design, not a bug.
-# That IS the marketplace hire path: a listed endpoint that returns 200 to an unpaid
-# probe reports valid:false and the hire is blocked.
-curl -i "https://kya-production-f846.up.railway.app/verify?agentId=2118"   # -> HTTP 402 + terms
-
-# A caller presents X-PAYMENT. At the free tier's amount "0" nothing settles on-chain;
-# this is the zero-value payload a real x402 client sends against a fee-0 challenge.
-XPAY=$(printf '%s' '{"x402Version":2,"scheme":"exact","network":"eip155:196","payload":{"amount":"0"}}' | base64 | tr -d '\n')
-curl -H "X-PAYMENT: $XPAY" "https://kya-production-f846.up.railway.app/verify?agentId=2118"   # Otto AI -> SAFE, signed
+# The listed service is free (fee 0), so it returns the verdict directly. No auth, no header.
+curl "https://kya-production-f846.up.railway.app/verify?agentId=2118"   # Otto AI -> SAFE, signed
 ```
 
-**Real, not a demo.** The free `/verify` speaks x402 (an unpaid probe gets a `402` challenge, not a `200`), and the paid tier **`/audit` settles real USDT** — `$0.10` on X Layer through OKX's own facilitator (`okxweb3-app-x402`), verified on-chain before the audit is served. Money actually moves through the listed endpoint; it is not a mock — **here is the receipt**:
+**Two tiers, and the split is real.** The free `/verify` returns the verdict, the score and the
+ceiling. The paid **`/audit`** (`$0.10` USDT on X Layer, through OKX's own facilitator
+`okxweb3-app-x402`, verified on-chain before it serves) answers what a snapshot cannot: **has this
+agent always been this?** — the full verdict `timeline`, `uptime` measured from real probe samples
+rather than self-reported status, and the operator's complete `fleet`. The settlement path is wired
+end-to-end and here is the receipt:
 
-> **Settled on X Layer:** tx [`0xf16355f714aa7f75fe84f904c553916693e7f9bba3db10c90e97e76e3c51cdaa`](https://www.oklink.com/xlayer/tx/0xf16355f714aa7f75fe84f904c553916693e7f9bba3db10c90e97e76e3c51cdaa)
-> · block `65446213` · `0.10 USDT` (raw `100000`, 6dp) transferred to KYA's payTo wallet.
-> Verify it yourself against any X Layer RPC — `eth_getTransactionReceipt` shows the ERC-20
-> `Transfer` on `0x779ded0c9e1022225f8e0630b35a9b54be713736`.
+> **Settled on X Layer:** tx [`0xf16355f7…3c51cdaa`](https://www.oklink.com/xlayer/tx/0xf16355f714aa7f75fe84f904c553916693e7f9bba3db10c90e97e76e3c51cdaa)
+> · block `65446213` · `0.10 USDT` (raw `100000`, 6dp) → `0x237e…9975`.
+> Verify against any X Layer RPC: `eth_getTransactionReceipt` shows the ERC-20 `Transfer` on
+> `0x779ded0c9e1022225f8e0630b35a9b54be713736`.
+>
+> **Stated plainly: this is a self-funded test payment**, not organic revenue. The buyer was our
+> own owner wallet paying a separate wallet we control. It proves the facilitator settles and the
+> gate serves — plumbing, verified. `soldCount` is 0. KYA flags self-payment as a wash pattern on
+> other agents, so it will not imply otherwise about itself.
 
 And `/verify` returns a machine-readable **`cluster`** field whenever the counterparty's operator runs 2+ known agents, so a calling agent can branch on operator concentration without parsing prose.
 
@@ -66,7 +69,7 @@ Bands: **SAFE** ≥ 70 · **CAUTION** 45–69 · **BLOCK** < 45. Every verdict c
 
 | Agent | ID | Verdict | Why |
 |---|---|---|---|
-| Otto AI | #2118 | **SAFE** | 216 settled sales, all endpoints serving, x402 valid |
+| Otto AI | #2118 | **SAFE** | 220 settled sales, all endpoints serving, x402 valid |
 | Onchain Data Explorer | #2023 | **SAFE** | 800+ sales, live, clean |
 | Scope | #3733 | **CAUTION** | Barely proven, one sale |
 | WhalePulse | #3369 | **CAUTION** | Live but unproven, nobody has used it |
@@ -74,19 +77,23 @@ Bands: **SAFE** ≥ 70 · **CAUTION** 45–69 · **BLOCK** < 45. Every verdict c
 
 **At marketplace scale, not hand-picked:** KYA verifies agents live and holds the signed
 verdicts on a persistent board
-([/watchtower](https://kya-production-f846.up.railway.app/watchtower)). On Jul 15, 2026 the
-board held **400 agents: 8 SAFE · 267 CAUTION · 125 BLOCK** — ~2% have *earned* SAFE via
-real settled reputation. Listed is table stakes; trusted is earned. The board is
+([/watchtower](https://kya-production-f846.up.railway.app/watchtower)). On Jul 17, 2026 the
+board held **400 agents: 30 SAFE · 325 CAUTION · 45 BLOCK** — under **8%** have *earned* SAFE
+via real settled reputation. Listed is table stakes; trusted is earned. The board is
 re-runnable and the marketplace moves, so read the live counts off `/watchtower`, never
-off this page.
+off this page. (The board renders the same three verdicts in its own voice:
+**CLEARED / WARY / WOLF** = `SAFE / CAUTION / BLOCK`.)
 
-**What the sweep found — one wallet is 99 "providers".** KYA indexed 603 agents to the
-wallet that controls each. Two wallets own **174 of them (29%)**:
+**What the sweep found — one wallet is 99 "providers".** KYA maps every agent it discovers to
+the wallet that controls it. Two wallets own **124** of them:
 
 | Wallet | Agents | Settled sales across ALL of them |
 |---|---:|---:|
 | `0x3256c679…168d69` | **99** | 19 |
-| `0x11f90417…810dfd` | **75** | 1 |
+| `0x11f90417…810dfd` | **25** | 1 |
+
+*(Live counts move with every sweep — read them off [`/operators`](https://kya-production-f846.up.railway.app/operators),
+never off this page.)*
 
 Both run the identical name template (`Pulse|Edge|Depth|Cycle` × ticker) — the same
 operator, split across two wallets. **OKX's own `agent search` never returns
@@ -149,7 +156,7 @@ app.py           FastAPI: /verify (free, x402-speaking) · /audit (PAID, real US
                  /operators (marketplace by controlling wallet) · /pubkey /health /passport
                  /seal /history /changes /watchtower
 scripts/         demo_caller, demo_flip, demo_poison, index_owners (operator sweep), smoke, demo.sh
-tests/           140 tests (verified Jul 16) incl. wash-trade, dead-endpoint, SSRF, owner-cluster,
+tests/           146 tests (verified Jul 17) incl. wash-trade, dead-endpoint, SSRF, owner-cluster,
                  and tool-poisoning regressions.
 ```
 
@@ -161,7 +168,7 @@ tests/           140 tests (verified Jul 16) incl. wash-trade, dead-endpoint, SS
 python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 python cli.py 2118           # Otto AI -> SAFE   (needs the `onchainos` CLI on PATH)
 uvicorn app:app --port 8000  # then: curl localhost:8000/verify?agentId=2118
-pytest -q                    # 140 tests (verified Jul 16)
+pytest -q                    # 146 tests (verified Jul 17)
 ```
 
 Env knobs (`.env.example`): `ORACLE_SIGNING_KEY` (stable signatures across redeploys), `KYA_DB_PATH` (persist history on a volume), `PROBE_TIMEOUT`, `CACHE_TTL`, `KYA_SETTLEMENT` + `OKLINK_API_KEY` (enable the on-chain wash gate).
