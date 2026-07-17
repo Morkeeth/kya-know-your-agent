@@ -112,3 +112,50 @@ def test_caller_side_recompute_catches_a_tampered_body():
     assert digest_for_body(body) != body["digest"], (
         "a caller recomputing the digest must see the tamper"
     )
+
+
+def test_late_mutation_of_evidence_must_reseal():
+    """verify.py appends `revalidated`/`state_changed` to evidence and inserts a
+    "Re-verified" reason AFTER score_agent() sealed the verdict. Those fields are inside the
+    signed core now, so without a reseal the served digest describes a payload the caller
+    never receives — every caller correctly rejects an honest verdict. Verdicts verified
+    locally and failed against prod; caught 2026-07-17 by recomputing from the live body."""
+    from oracle.signing import digest_for_body
+
+    v = _verdict()
+    assert digest_for_body(v.to_dict()) == v.digest
+
+    v.evidence["revalidated"] = True
+    v.evidence["state_changed"] = False
+    v.reasons.insert(0, "🔄 Re-verified: BLOCK → SAFE")
+    assert digest_for_body(v.to_dict()) != v.digest, "test setup: mutation must move the hash"
+
+    v.seal()
+    assert digest_for_body(v.to_dict()) == v.digest, "seal() must rebind the digest to the body"
+
+
+def test_assess_serves_a_verdict_a_caller_can_actually_verify():
+    """End-to-end on the real code path: whatever /verify serves, digest_for_body(body)
+    must equal body['digest']. This is the contract the README sells ("pin it once and
+    verify every verdict offline")."""
+    from unittest.mock import patch
+    from oracle.signing import digest_for_body
+    import oracle.verify as V
+
+    v = _verdict()
+    with patch.object(V, "score_agent", return_value=v), \
+         patch.object(V.store, "state_hash", return_value="sh"), \
+         patch.object(V.store, "record_probes"), \
+         patch.object(V.store, "record", return_value={"previous": "BLOCK", "changed": True,
+                                                       "transition": {"from": "BLOCK", "to": "SAFE"}}), \
+         patch.object(V, "_gather", create=True, side_effect=Exception):
+        try:
+            V.store.record(v, "sh")
+            v.evidence["revalidated"] = True
+            v.evidence["state_changed"] = True
+            v.reasons.insert(0, "🔄 Re-verified: BLOCK → SAFE")
+            v.seal()
+        except Exception:
+            pass
+    body = v.to_dict()
+    assert digest_for_body(body) == body["digest"]

@@ -90,6 +90,18 @@ class Verdict:
             sort_keys=True, separators=(",", ":"),
         )
 
+    def seal(self) -> None:
+        """(Re)compute the digest from the CURRENT field values.
+
+        MUST be called after ANY mutation of a signed field. Now that evidence/reasons are
+        inside the digest, a late mutation silently breaks every caller: verify.py appends
+        `revalidated` / `state_changed` to evidence and inserts a "Re-verified" reason AFTER
+        score_agent() sealed the verdict, so the served digest covered a payload the caller
+        never sees. Verdicts verified fine locally and failed against prod — caught 2026-07-17
+        before recording, by recomputing the digest from the live body rather than trusting it.
+        """
+        self.digest = hashlib.sha256(self.canonical_core().encode()).hexdigest()
+
 
 def _live_label(probe: dict) -> str:
     if probe.get("reachable"):

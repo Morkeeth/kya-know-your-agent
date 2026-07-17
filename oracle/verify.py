@@ -61,4 +61,9 @@ def assess(agent_id: str, *, persist: bool = True) -> Verdict:
             t = change["transition"]
             v.reasons.insert(0, f"🔄 Re-verified: {t['from']} → {t['to']} "
                                 f"(agent changed since last check).")
+        # RESEAL. Everything above mutated evidence/reasons, which are inside the signed
+        # core — so the digest score_agent() computed no longer describes this payload. Any
+        # caller recomputing the digest from the body it received would (correctly) reject
+        # the verdict as tampered. Re-sealing is not optional once evidence is signed.
+        v.seal()
     return v
