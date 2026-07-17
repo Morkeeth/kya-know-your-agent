@@ -1,7 +1,7 @@
 """
 The Watchtower — KYA's live board of agent trust verdicts and crossings.
 
-Renders in the KYA passport identity (lime #D9F94C on near-black, the eye motif,
+Renders in the KYA passport identity (lime #BCE82F on near-black, the eye motif,
 customs-stamp verdicts CLEARED / WARY / WOLF). Self-contained HTML, no external
 assets, so it serves under the same locked-down surface as the passport.
 """
@@ -10,11 +10,20 @@ from __future__ import annotations
 import html
 import time
 
+# ONE hue. Verdict is carried by the eye's FORM (open / wary / slashed) and by LUMINANCE —
+# never by hue. Amber/green/red status lights were the board's loudest vibe-code tell, and
+# they were redundant: the eye already says which verdict it is. A single-hue ramp says
+# something a traffic light cannot — how much light an agent has EARNED. SAFE glows at full
+# brand lime, CAUTION is dimmed, BLOCK is nearly dark. Trust as luminance.
+# Lime is the avatar's exact green (#BCE82F), so the board and the mark are one brand.
 _C = {
     "bg": "#0B0B0C", "panel": "#141416", "line": "#26262A", "ink": "#FFFFFF",
-    "mute": "#8A8A8E", "lime": "#D9F94C", "amber": "#F4B740", "red": "#FF5247",
+    "mute": "#8A8A8E",
+    "lime": "#BCE82F",   # earned, full light
+    "dim": "#6E8A34",    # unproven, half light
+    "dark": "#3C4522",   # refused, nearly out
 }
-_ACCENT = {"SAFE": _C["lime"], "CAUTION": _C["amber"], "BLOCK": _C["red"]}
+_ACCENT = {"SAFE": _C["lime"], "CAUTION": _C["dim"], "BLOCK": _C["dark"]}
 _STAMP = {"SAFE": "CLEARED", "CAUTION": "WARY", "BLOCK": "WOLF"}
 
 
@@ -32,7 +41,10 @@ def _ago(ts: int) -> str:
 
 
 def _eye(state: str, size: int = 26) -> str:
-    """The KYA eye, matched to the verdict: open (lime), wary (amber), slashed (red)."""
+    """The KYA eye, matched to the verdict: open (full light), wary (dimmed), slashed (nearly out).
+
+    Form carries the verdict; luminance carries how much trust was earned. One hue only.
+    """
     c = _ACCENT.get(state, _C["lime"])
     slash = (f'<line x1="4" y1="20" x2="22" y2="6" stroke="{c}" stroke-width="2.4" '
              f'stroke-linecap="round"/>') if state == "BLOCK" else ""
@@ -63,7 +75,7 @@ def render_watchtower(verdicts: list[dict], changes: list[dict], *, host: str = 
 
 def _row(v: dict, host: str) -> str:
     verdict = v.get("verdict", "BLOCK")
-    c = _ACCENT.get(verdict, _C["red"])
+    c = _ACCENT.get(verdict, _C["dark"])
     aid = html.escape(str(v.get("agent_id", "")))
     name = html.escape(v.get("name") or "—")
     link = f'{host}/passport?agentId={aid}' if host else f'/passport?agentId={aid}'
@@ -107,8 +119,8 @@ body{background:#0B0B0C;color:#FFFFFF;font-family:'Helvetica Neue',Helvetica,Ari
 .wrap{max-width:960px;margin:0 auto}
 .top{border-bottom:1px solid #26262A;padding-bottom:20px;margin-bottom:28px}
 .brand{display:flex;align-items:center;gap:12px}
-.brand h1{font-family:'Arial Rounded MT Bold','Helvetica Neue',sans-serif;font-size:clamp(30px,6vw,44px);
-  font-weight:900;letter-spacing:-1px;color:#D9F94C}
+.brand h1{font-family:'Futura','Avenir Next','Helvetica Neue',sans-serif;font-size:clamp(30px,6vw,44px);
+  font-weight:900;letter-spacing:-1px;color:#BCE82F}
 .kicker{font-family:'SF Mono',Menlo,monospace;font-size:11px;letter-spacing:3px;color:#8A8A8E;
   text-transform:uppercase;margin-top:10px}
 .kicker b{color:#FFF;font-weight:400}
@@ -143,11 +155,11 @@ body{background:#0B0B0C;color:#FFFFFF;font-family:'Helvetica Neue',Helvetica,Ari
 .cx-arrow{font-size:14px}
 .cx-when{font-family:'SF Mono',Menlo,monospace;font-size:10px;color:#8A8A8E}
 .cx-empty,.row-empty{padding:20px 16px;color:#8A8A8E;font-size:13px}
-.row-empty code{font-family:'SF Mono',monospace;color:#D9F94C}
+.row-empty code{font-family:'SF Mono',monospace;color:#BCE82F}
 .foot{margin-top:28px;padding-top:16px;border-top:1px solid #26262A;
   font-family:'SF Mono',Menlo,monospace;font-size:10px;letter-spacing:1.5px;color:#8A8A8E;
   display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
-.foot b{color:#D9F94C;font-weight:400}
+.foot b{color:#BCE82F;font-weight:400}
 @media(max-width:520px){
   /* verdict is already encoded by the coloured eye + coloured score, so the
      stamp/timestamp columns drop out and the row can't out-width the viewport. */
@@ -214,7 +226,7 @@ def _op_row(o: dict, rank: int) -> str:
     agents = int(o.get("agents") or 0)
     sales = int(o.get("sales") or 0)
     verdict, label = _op_verdict(o)
-    c = _ACCENT.get(verdict, _C["red"])
+    c = _ACCENT.get(verdict, _C["dark"])
     stems = _stems(o.get("names") or [])
     short = html.escape(owner[:10] + "…" + owner[-6:]) if len(owner) > 18 else html.escape(owner)
     tmpl = html.escape(" · ".join(f"{s}*" for s in stems)) if stems else "—"
@@ -245,8 +257,8 @@ def render_operators(data: dict, *, host: str = "") -> str:
         for val, lab, col in [
             (total_agents, "AGENTS INDEXED", _C["ink"]),
             (total_owners, "ACTUAL OPERATORS", _C["ink"]),
-            (top_n, "BEHIND ONE WALLET", _C["red"]),
-            (behind, "AGENTS THAT ARE SHELLS", _C["red"]),
+            (top_n, "BEHIND ONE WALLET", _C["lime"]),
+            (behind, "AGENTS THAT ARE SHELLS", _C["lime"]),
         ]
     )
     rows = "".join(_op_row(o, i + 1) for i, o in enumerate(ops)) or _empty_row()
@@ -261,7 +273,7 @@ _OPS_CSS = """
 .row{grid-template-columns:26px 44px minmax(0,1fr) minmax(0,1.1fr) auto 58px 74px}
 .op-tmpl{font-size:11px;color:#8A8A8E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lede{font-size:15px;color:#C9C9CD;margin:18px 0 4px;line-height:1.55}
-.lede b{color:#D9F94C;font-weight:400}
+.lede b{color:#BCE82F;font-weight:400}
 @media(max-width:520px){
   .row{grid-template-columns:22px minmax(0,1fr) auto 46px;gap:10px}
   .op-tmpl,.seen,.id{display:none}

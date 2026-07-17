@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# kya — the KYA command line.
+#
+# Exists because the demo was being driven with `./.venv/bin/python scripts/demo_caller.py`,
+# which only works from the repo root and reads like scaffolding rather than a product.
+# Resolves its own repo + venv, so it runs from anywhere.
+#
+#   kya            a buyer agent pricing four payments against signed verdicts
+#   kya <id>       one verdict, human-readable
+#   kya <id> <amt> would you pay this agent $amt?
+#   kya demo       the full narrated demo
+#   kya board      open the live watchtower
+set -euo pipefail
+
+# Resolve symlinks: this is installed as ~/.local/bin/kya -> <repo>/bin/kya, and without
+# following the link REPO resolves to ~/.local and every path below breaks.
+SRC="${BASH_SOURCE[0]}"
+while [ -L "$SRC" ]; do
+  DIR="$(cd -P "$(dirname "$SRC")" && pwd)"
+  SRC="$(readlink "$SRC")"
+  [[ "$SRC" != /* ]] && SRC="$DIR/$SRC"
+done
+REPO="$(cd -P "$(dirname "$SRC")/.." && pwd)"
+PY="$REPO/.venv/bin/python"
+[ -x "$PY" ] || PY="python3"
+cd "$REPO"
+
+case "${1:-}" in
+  demo)   exec bash scripts/demo.sh ;;
+  board)  exec open "https://kya-production-f846.up.railway.app/watchtower" ;;
+  "")     exec "$PY" scripts/demo_caller.py ;;
+  *[!0-9]*)
+    echo "kya: '$1' is not an agent id" >&2
+    echo "usage: kya [<agentId> [<amountUSD>]] | kya demo | kya board" >&2
+    exit 2 ;;
+  *)
+    if [ -n "${2:-}" ]; then exec "$PY" scripts/demo_caller.py "$1:$2"
+    else exec "$PY" scripts/demo_caller.py "$1:5.00"; fi ;;
+esac

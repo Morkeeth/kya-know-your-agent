@@ -1,11 +1,11 @@
 """
 KYA visual credentials — a hardened, self-contained SVG "agent passport".
 
-Rendered in the KYA brand identity: lime (#D9F94C) on black, white workhorse
+Rendered in the KYA brand identity: brand lime (#BCE82F) on black, white workhorse
 text, and the signature EYE as the verdict device —
     CLEARED = an open, watchful lime eye
-    WARY    = a narrowed amber eye
-    WOLF    = a slashed red eye ("we see through you").
+    WARY    = a narrowed, dimmed eye
+    WOLF    = a slashed, nearly-dark eye ("we see through you").
 
 Two renders:
   render_stamp(...)    -> small embeddable eye badge (for READMEs / sites)
@@ -38,13 +38,15 @@ BG = "#0B0B0C"          # near-black page
 PANEL = "#141416"       # slightly raised panel
 INK = "#FFFFFF"         # primary text
 MUTE = "#8A8A8E"        # muted labels
-LIME = "#D9F94C"        # brand accent
-_ACCENT = {"SAFE": LIME, "CAUTION": "#F4B740", "BLOCK": "#FF5247"}
+LIME = "#BCE82F"        # brand accent
+# ONE hue — see oracle/watchtower.py. The eye's FORM says which verdict; luminance says
+# how much light the agent earned. Traffic-light amber/red was the loudest vibe-code tell.
+_ACCENT = {"SAFE": LIME, "CAUTION": "#6E8A34", "BLOCK": "#3C4522"}
 _STAMP_WORD = {"SAFE": "CLEARED", "CAUTION": "WARY", "BLOCK": "WOLF"}
 _EYE_STATE = {"SAFE": "open", "CAUTION": "wary", "BLOCK": "wolf"}
 _ALLOWED = {"SAFE", "CAUTION", "BLOCK"}
 
-_ROUND = "'Arial Rounded MT Bold', 'Helvetica Neue', Helvetica, sans-serif"
+_ROUND = "'Futura', 'Avenir Next', 'Helvetica Neue', Helvetica, sans-serif"
 _SANS = "'Helvetica Neue', Helvetica, Arial, sans-serif"
 _MONO = "'SF Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace"
 

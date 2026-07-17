@@ -567,13 +567,31 @@ def test_operator_rows_are_colour_coded_by_verdict():
     """Regression: the first cut passed the STAMP LABEL where the verdict was
     expected, so _eye fell through to its lime default and every row rendered
     identically — a board where a farm looks like a business is worse than no board."""
-    from oracle.watchtower import _op_row
+    from oracle.watchtower import _op_row, _C
     farm = _op_row({"owner": "0x" + "a" * 40, "agents": 99, "sales": 0,
                     "names": [f"Pulse{t}" for t in ("BTC", "ETH", "SOL")] * 2}, 1)
     biz = _op_row({"owner": "0x" + "b" * 40, "agents": 7, "sales": 30, "names": ["Otto"]}, 2)
-    assert "#FF5247" in farm and "ONE FACE" in farm      # red
-    assert "#D9F94C" in biz and "BUSINESS" in biz        # lime
-    assert "#FF5247" not in biz
+
+    # The farm is nearly dark; the real business glows. ONE hue — a traffic light would
+    # say "bad/good"; luminance says how much light the operator EARNED.
+    assert _C["dark"] in farm and "ONE FACE" in farm
+    assert _C["lime"] in biz and "BUSINESS" in biz
+    assert _C["dark"] not in biz
+
+
+def test_the_board_never_uses_traffic_light_colours():
+    """Amber/green/red status lights were the board's loudest vibe-code tell, and they were
+    redundant — the eye's FORM already carries the verdict. Verdict must be encoded by hue-
+    free luminance. If a second hue creeps back in, this fails."""
+    from oracle.watchtower import _CSS, _C, _eye, _op_row
+
+    surfaces = _CSS + "".join(_eye(v) for v in ("SAFE", "CAUTION", "BLOCK")) + _op_row(
+        {"owner": "0x" + "c" * 40, "agents": 3, "sales": 1, "names": ["X"]}, 1)
+    for banned in ("#F4B740", "#FF5247", "#D9F94C"):  # amber, red, the pre-brand lime
+        assert banned not in surfaces, f"traffic-light colour {banned} is back on the board"
+
+    # every verdict accent must be the SAME hue at different luminance
+    assert len({_C["lime"], _C["dim"], _C["dark"]}) == 3
 
 
 # ------------------------------------------------- volume basis: measured vs floor
