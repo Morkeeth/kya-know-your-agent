@@ -345,3 +345,85 @@ _OPS_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 </div>
 <footer class="foot"><span>OWNER INDEX BUILT FROM get-agents · SEARCH CANNOT SEE THIS</span><span>{now}</span></footer>
 </div></body></html>"""
+
+
+# --------------------------------------------------------------- changes board
+def _chg_row(c: dict, host: str) -> str:
+    frm, to = c.get("from_verdict", "?"), c.get("to_verdict", "?")
+    order = ("BLOCK", "CAUTION", "SAFE")
+    up = order.index(to) > order.index(frm) if frm in order and to in order else False
+    aid = html.escape(str(c.get("agent_id", "")))
+    name = html.escape(c.get("name") or "—")
+    ds = int(c.get("to_score", 0)) - int(c.get("from_score", 0))
+    link = f'{host}/passport?agentId={aid}' if host else f'/passport?agentId={aid}'
+    return (
+        f'<a class="row v-{to}" href="{link}">'
+        f'<span class="eye">{_eye(to)}</span>'
+        f'<span class="id">#{aid}</span>'
+        f'<span class="name">{name}</span>'
+        f'<span class="chg-move">'
+        f'<span class="chg-f" style="color:{_ACCENT.get(frm, _C["mute"])}">{_STAMP.get(frm, frm)}</span>'
+        f'<span class="chg-ar" style="color:{_ACCENT.get(to, _C["mute"])}">{"→" if not up else "→"}</span>'
+        f'<span style="color:{_ACCENT.get(to, _C["mute"])}">{_STAMP.get(to, to)}</span>'
+        f'</span>'
+        f'<span class="chg-d" style="color:{_C["lime"] if ds > 0 else _C["dim"]}">'
+        f'{"+" if ds > 0 else ""}{ds}</span>'
+        f'<span class="seen">{_ago(c.get("at", 0))}</span>'
+        f'</a>')
+
+
+def render_changes(changes: list[dict], *, host: str = "") -> str:
+    """Every verdict that MOVED. The point of the whole product in one table: a rating is a
+    snapshot, and a snapshot cannot tell you the agent you cleared last week went dark
+    yesterday. This surface was raw JSON while sitting in the nav — a judge clicking it hit
+    a wall of unformatted text."""
+    ups = sum(1 for c in changes
+              if ("BLOCK", "CAUTION", "SAFE").index(c.get("to_verdict", "BLOCK"))
+              > ("BLOCK", "CAUTION", "SAFE").index(c.get("from_verdict", "BLOCK")))
+    downs = len(changes) - ups
+    tally = "".join(
+        f'<div class="tally"><div class="tnum mono" style="color:{col}">{val}</div>'
+        f'<div class="tlab">{lab}</div></div>'
+        for val, lab, col in [(len(changes), "VERDICTS MOVED", _C["ink"]),
+                              (ups, "EARNED TRUST", _C["lime"]),
+                              (downs, "LOST IT", _C["dim"])])
+    rows = "".join(_chg_row(c, host) for c in changes) or (
+        '<div class="row-empty">Nothing has moved yet — every verdict is stable.</div>')
+    return _CHG_PAGE.format(css=_CSS + _CHG_CSS, eye=_eye("CAUTION", 34),
+                            nav=_nav("changes", host), tally=tally, rows=rows,
+                            now=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()))
+
+
+_CHG_CSS = """
+.row{grid-template-columns:30px 62px minmax(0,1fr) auto 46px 74px}
+.chg-move{font-family:'SF Mono',Menlo,monospace;font-size:10px;font-weight:700;letter-spacing:1.2px;
+  display:flex;align-items:center;gap:7px;white-space:nowrap}
+.chg-ar{font-size:12px}
+.chg-d{font-family:'SF Mono',Menlo,monospace;font-size:13px;font-weight:700;text-align:right}
+.lede{font-size:15px;color:#C9C9CD;margin:18px 0 4px;line-height:1.55}
+.lede b{color:#BCE82F;font-weight:400}
+@media(max-width:520px){
+  .row{grid-template-columns:22px minmax(0,1fr) auto 44px;gap:10px}
+  .id,.seen{display:none}
+}
+"""
+
+_CHG_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KYA · Changes</title><style>{css}</style></head><body><div class="wrap">
+<header class="top">
+  <div class="brand">{eye}<h1>KYA</h1></div>
+  {nav}
+  <div class="lede">A rating is a snapshot. It cannot tell you the agent you cleared last week
+  <b>went dark yesterday</b>. KYA re-verifies on change and records every crossing — this is
+  the same agent, judged twice.</div>
+  <div class="tallies">{tally}</div>
+</header>
+<div class="grid" style="grid-template-columns:minmax(0,1fr)">
+  <section>
+    <div class="sec-h"><span>Verdict changes</span><span>MOVE · Δ</span></div>
+    <div class="board">{rows}</div>
+  </section>
+</div>
+<footer class="foot"><span>MACHINE-READABLE: /changes.json</span><span>{now}</span></footer>
+</div></body></html>"""

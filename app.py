@@ -259,9 +259,19 @@ def history(agentId: str | None = Query(default=None), name: str | None = Query(
 
 
 @app.get("/changes")
-def changes(limit: int = Query(default=20, ge=1, le=100)):
-    """Recent verdict TRANSITIONS across all agents - who KYA re-verified up or down
-    after they changed (patched a dead endpoint, lost their reviews, went offline)."""
+def changes(limit: int = Query(default=25, ge=1, le=100)):
+    """Recent verdict TRANSITIONS — who KYA re-verified up or down after they changed.
+
+    Renders the board. This route was in the nav while returning raw JSON, so a judge
+    clicking CHANGES hit a wall of unformatted text. Machines get /changes.json.
+    """
+    from oracle.watchtower import render_changes
+    return Response(render_changes(store.recent_changes(limit=limit)), media_type="text/html")
+
+
+@app.get("/changes.json")
+def changes_json(limit: int = Query(default=25, ge=1, le=100)):
+    """The same transitions, for a caller."""
     return {"changes": store.recent_changes(limit=limit)}
 
 
