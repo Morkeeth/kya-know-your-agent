@@ -20,9 +20,15 @@ from __future__ import annotations
 import os
 
 # Receiving wallet for the (real) 0.10 USDT. MUST differ from the buyer wallet or it is a
-# self-payment — the exact wash pattern KYA itself flags. Set KYA_AUDIT_PAYTO to a wallet
-# you control that is NOT the buyer before running a real settle.
-AUDIT_PAYTO = os.environ.get("KYA_AUDIT_PAYTO", "0x88f53629d84abe6dffbacb15f6e1eb5464e2761b")
+# self-payment — the exact wash pattern KYA itself flags.
+#
+# NO DEFAULT, deliberately (2026-07-17): this used to default to #5290's ownerAddress, i.e.
+# the buyer wallet. Any deploy that forgot KYA_AUDIT_PAYTO would have quietly settled money
+# to itself — KYA faking its own revenue, the precise pattern it penalises others for. An
+# unset payTo now refuses to mount /audit instead (the free tier is unaffected), because a
+# paid tier that cannot name a distinct payee should not take money.
+AUDIT_PAYTO = os.environ.get("KYA_AUDIT_PAYTO")
+BUYER_WALLET = "0x88f53629d84abe6dffbacb15f6e1eb5464e2761b"  # #5290 ownerAddress
 AUDIT_PRICE = os.environ.get("KYA_AUDIT_PRICE", "$0.10")
 NETWORK_XLAYER = "eip155:196"
 
@@ -35,6 +41,12 @@ def build_paid_middleware():
     passphrase = os.environ.get("OKX_PASSPHRASE")
     if not (key and secret and passphrase):
         return None, "no OKX creds in env — /audit not mounted (free tier unaffected)"
+    if not AUDIT_PAYTO:
+        return None, ("KYA_AUDIT_PAYTO unset — /audit not mounted. Refusing to take money "
+                      "without a distinct payee (free tier unaffected).")
+    if AUDIT_PAYTO.lower() == BUYER_WALLET.lower():
+        return None, ("KYA_AUDIT_PAYTO is the buyer wallet — that is a self-payment, the "
+                      "wash pattern KYA penalises. /audit not mounted.")
     try:
         # ASYNC facilitator — the FastAPI middleware builds the async x402ResourceServer,
         # which does `await facilitator.verify(...)` / `.settle(...)`. The Sync client's
@@ -77,19 +89,46 @@ def build_paid_middleware():
 
 
 def full_audit(agent_id: str, verdict, env) -> dict:
-    """The premium payload — everything, not just the headline verdict."""
+    """The premium payload — the DEPTH behind the verdict, not a relabelled /verify.
+
+    What earns the $0.10 (checked against the free tier, 2026-07-17): /verify already
+    returns the verdict, score, max_safe_usd, reasons, signals and evidence. Those are NOT
+    the product here — reprinting them and calling it premium would be the exact
+    "published != true" failure KYA exists to catch, and a buyer diffing the two payloads
+    would find it in seconds.
+
+    The paid tier answers what a snapshot cannot: **has this agent always been this?**
+      - `timeline`  — every verdict KYA has ever issued for it, with the state hash that
+                      moved. A clean agent that flipped BLOCK->SAFE last week is not the
+                      same counterparty as one that has been SAFE for a month.
+      - `uptime`    — measured from real probe samples, not the listing's self-reported
+                      onlineStatus.
+      - `fleet`     — the operator's FULL agent list. /verify returns a cluster summary
+                      (fleet_size, risk); this returns the actual siblings, so a buyer can
+                      see WHICH other agents the same wallet runs.
+    A regression test pins this: the paid payload must stay a strict superset of the free
+    one (tests/test_audit_paid.py). It was not, until this fix.
+    """
+    from oracle import store  # local import: keeps the module importable without a DB
+
     v = verdict
+    owner = ((v.evidence or {}).get("cluster") or {}).get("owner")
     return {
         "agent_id": agent_id,
         "verdict": v.verdict,
         "score": v.score,
         "confidence": v.confidence,
         "max_safe_usd": v.max_safe_usd,
-        "volume_basis": v.evidence.get("volumeBasis"),
-        "settled_volume": v.evidence.get("settledVolume"),
+        "volume_basis": (v.evidence or {}).get("volumeBasis"),
+        "settled_volume": (v.evidence or {}).get("settledVolume"),
         "reasons": v.reasons,
-        "signals": v.signals,          # the full breakdown the free tier withholds
-        "evidence": v.evidence,         # owner-fleet, endpoints, fee spread, caps
+        "signals": v.signals,
+        "evidence": v.evidence,         # owner-fleet summary, endpoints, fee spread, caps
+        "digest": v.digest,             # the signed passport digest
         "signature": env,               # signed + TTL-bound, verifiable at /pubkey
+        # ── the depth the free tier does NOT return ──────────────────────────────
+        "timeline": store.history(agent_id, limit=50),
+        "uptime": store.uptime(agent_id),
+        "fleet": store.fleet_for(owner) if owner else None,
         "tier": "full-audit (paid)",
     }
