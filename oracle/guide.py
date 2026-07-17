@@ -46,6 +46,7 @@ GUIDE: list[tuple] = [
     ("p", "The listed service is free (fee 0) and returns the verdict directly. No key, no "
           "header, no account."),
     ("code", 'curl "https://kya-production-f846.up.railway.app/verify?agentId=2118"'),
+    ("term", None),
     ("p", "From an agent, the only thing that matters is that you branch on **both** the "
           "verdict and the ceiling. The verdict alone is a rating; the pair is a decision:"),
     ("code", '''import httpx
@@ -183,6 +184,12 @@ def render_guide_md() -> str:
             out += ["```", block[1], "```", ""]
         elif kind == "note":
             out += [f"> {_inline_md(block[1])}", ""]
+        elif kind == "term":
+            out += ["```", "$ kya    # a buyer agent pricing 4 payments against live verdicts",
+                    "#   2118 $0.50 -> PROCEED   (within its earned ceiling)",
+                    "#   2118 $5.00 -> HOLD      (over it — same agent, same verdict)",
+                    "#   3345 $5.00 -> PROCEED   (earned more, so it gets more)",
+                    "#   3820 $5.00 -> REFUSE    (BLOCK refuses at any price)", "```", ""]
         elif kind == "table":
             head, rows = block[1], block[2]
             out += ["| " + " | ".join(head) + " |",
@@ -204,14 +211,105 @@ def render_guide_html(nav: str, eye: str, css: str) -> str:
             body.append(f'<pre class="g-code"><code>{_html.escape(block[1])}</code></pre>')
         elif kind == "note":
             body.append(f'<p class="g-note">{_inline_html(block[1])}</p>')
+        elif kind == "term":
+            body.append(_TERM_HTML)
         elif kind == "table":
             head, rows = block[1], block[2]
             th = "".join(f"<th>{_inline_html(h)}</th>" for h in head)
             tr = "".join("<tr>" + "".join(f"<td>{_inline_html(c)}</td>" for c in r) + "</tr>"
                          for r in rows)
             body.append(f'<table class="g-t"><thead><tr>{th}</tr></thead><tbody>{tr}</tbody></table>')
-    return _GUIDE_PAGE.format(css=css + _GUIDE_CSS, eye=eye, nav=nav, body="".join(body))
+    return _GUIDE_PAGE.format(css=css + _GUIDE_CSS + _TERM_CSS, eye=eye, nav=nav, body="".join(body))
 
+
+
+# --- the live terminal -------------------------------------------------------------
+# It calls the REAL /verify (same origin, no key) and applies the REAL gate in JS, then
+# types the result. It is not a recorded replay and not a mock: if the marketplace moves,
+# this widget moves with it, and if the service is down it says so instead of lying. A
+# faked demo on a product whose thesis is "published != true" would be the joke writing
+# itself. The two Otto beats are the point — same agent, same verdict, different answer.
+_TERM_HTML = """
+<div class="term">
+  <div class="term-bar"><span class="term-t">kya — live, against this service</span>
+    <button class="term-run" id="tRun">REPLAY</button></div>
+  <pre class="term-body" id="tBody"></pre>
+</div>
+<script>
+(function(){
+  var BEATS=[["2118",0.50],["2118",5.00],["3345",5.00],["3820",5.00]];
+  var body=document.getElementById("tBody"), run=document.getElementById("tRun"), busy=false;
+  // One DIV per line. No newline escapes anywhere in this block, including in comments:
+  // it travels bash -> python -> html before a browser sees it, and a backslash-n does
+  // not survive the trip. It arrived as a real line break inside a string literal, the
+  // script died with "Uncaught SyntaxError", and the terminal rendered as a bare cursor.
+  // Block elements need no escaping and cannot be mangled in transit.
+  function line(t,c){var s=document.createElement("div");s.textContent=t||" ";
+    if(c)s.className=c;body.appendChild(s);body.scrollTop=body.scrollHeight;}
+  function sleep(ms){return new Promise(function(r){setTimeout(r,ms)});}
+  async function type(t){var s=document.createElement("div");s.className="t-cmd";
+    body.appendChild(s);
+    for(var i=0;i<t.length;i++){s.textContent=t.slice(0,i+1);await sleep(26);}}
+  function money(n){return "$"+Number(n).toFixed(2);}
+  async function beat(id,amt){
+    var r,v;
+    try{
+      r=await fetch("/verify?agentId="+id,{headers:{"accept":"application/json"}});
+      v=await r.json();
+    }catch(e){ line("  ! service unreachable — "+e,"t-dim"); return; }
+    if(!v||!v.verdict){ line("  ! no verdict for #"+id,"t-dim"); return; }
+    var ceil=Number(v.max_safe_usd||0);
+    line("");
+    line("> pay "+(v.name||("#"+id))+" ("+"#"+id+") "+money(amt)+"?","t-q");
+    await sleep(150);
+    line("  verdict "+v.verdict+"   earned ceiling "+money(ceil)+"   signed",
+         v.verdict==="SAFE"?"t-ok":(v.verdict==="BLOCK"?"t-no":"t-warn"));
+    await sleep(150);
+    // the REAL gate, same order as scripts/demo_caller.py
+    if(v.verdict==="BLOCK"){ line("  REFUSE  — BLOCK. do not send funds.","t-no"); }
+    else if(amt>ceil){ line("  HOLD    — "+money(amt)+" exceeds the "+money(ceil)+" it has earned.","t-warn"); }
+    else if(v.verdict==="CAUTION"){ line("  HOLD    — unproven counterparty.","t-warn"); }
+    else { line("  PROCEED — within the earned ceiling. pay it.","t-ok"); }
+  }
+  async function go(){
+    if(busy)return; busy=true; run.disabled=true; body.textContent="";
+    await type("$ kya");
+    line("  asking the live service about 4 payments…","t-dim");
+    for(var i=0;i<BEATS.length;i++){ await beat(BEATS[i][0],BEATS[i][1]); }
+    line("");
+    line("  two SAFE agents. the same $5.00. opposite answers —","t-dim");
+    line("  because one of them earned it.","t-dim");
+    busy=false; run.disabled=false;
+  }
+  run.addEventListener("click",go);
+  if("IntersectionObserver" in window){
+    var io=new IntersectionObserver(function(e){ if(e[0].isIntersecting){io.disconnect();go();} },{threshold:.25});
+    io.observe(document.querySelector(".term"));
+  } else { go(); }
+})();
+</script>
+"""
+
+_TERM_CSS = """
+.term{border:1px solid #26262A;background:#0d0d0f;margin:6px 0 20px}
+.term-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  border-bottom:1px solid #26262A;padding:8px 12px}
+.term-t{font-family:'SF Mono',Menlo,monospace;font-size:10px;letter-spacing:2px;color:#8A8A8E}
+.term-run{font-family:'SF Mono',Menlo,monospace;font-size:9px;letter-spacing:1.6px;color:#BCE82F;
+  background:none;border:1px solid #3C4522;padding:4px 9px;cursor:pointer}
+.term-run:hover{background:#141416}
+.term-run:disabled{color:#3C4522;cursor:default}
+.term-body{font-family:'SF Mono',Menlo,monospace;font-size:12.5px;line-height:1.62;color:#C9C9CD;
+  padding:14px 16px;margin:0;min-height:290px;max-height:340px;overflow-y:auto;white-space:pre-wrap}
+.term-body::after{content:"█";color:#BCE82F;animation:tb 1.05s step-end infinite}
+@keyframes tb{50%{opacity:0}}
+.t-cmd{color:#FFFFFF}
+.t-q{color:#FFFFFF}
+.t-ok{color:#BCE82F}
+.t-warn{color:#6E8A34}
+.t-no{color:#8A8A8E}
+.t-dim{color:#5a5a5e}
+"""
 
 _GUIDE_CSS = """
 .g-wrap{max-width:760px}
