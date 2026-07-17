@@ -62,12 +62,31 @@ class Verdict:
     def to_dict(self) -> dict:
         return asdict(self)
 
+    def payload_hash(self) -> str:
+        """sha256 over the EVIDENCE a caller is invited to branch on.
+
+        Folded into the signed core because until 2026-07-17 it was not: only
+        agent_id/verdict/score/confidence/max_safe_usd were signed, so anyone in the middle
+        could rewrite `evidence.cluster.fleet_size` 99 -> 1, or flip `penalized` to false,
+        and the Ed25519 signature still verified. KYA's headline finding lives in that field
+        and the README tells callers to branch on it — an unsigned field you tell people to
+        trust is worse than no field. A trust product does not get to ship that.
+
+        Deterministic by construction (sorted keys, tight separators) so any caller can
+        recompute it from the response body and compare.
+        """
+        return hashlib.sha256(json.dumps(
+            {"evidence": self.evidence, "reasons": self.reasons, "signals": self.signals},
+            sort_keys=True, separators=(",", ":"), default=str,
+        ).encode()).hexdigest()
+
     def canonical_core(self) -> str:
         """The stable payload that identifies this verdict — signed by the service."""
         return json.dumps(
             {"agent_id": self.agent_id, "verdict": self.verdict,
              "score": self.score, "confidence": self.confidence,
-             "max_safe_usd": self.max_safe_usd},
+             "max_safe_usd": self.max_safe_usd,
+             "payload_sha256": self.payload_hash()},
             sort_keys=True, separators=(",", ":"),
         )
 

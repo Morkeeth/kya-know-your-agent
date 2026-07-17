@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import httpx  # noqa: E402
-from oracle.signing import verify_envelope  # noqa: E402
+from oracle.signing import verify_envelope, digest_for_body  # noqa: E402
 
 HOST = "https://kya-production-f846.up.railway.app"
 
@@ -49,11 +49,17 @@ def gate_transaction(host: str, pinned_key: str, agent_id: str, amount_usd: floa
     Returns one of PROCEED / HOLD / REFUSE.
     """
     body = ask_kya(host, agent_id)
-    verdict, digest, env = body["verdict"], body["digest"], body["signature"]
+    verdict, env = body["verdict"], body["signature"]
     ceiling = float(body.get("max_safe_usd") or 0.0)
 
     # 1) Is the verdict AUTHENTIC + FRESH? (pinned key, signed expiry)
-    authentic = verify_envelope(digest, env, pinned_key)
+    #    RECOMPUTE the digest from the bytes we received — never trust body["digest"].
+    #    The signature covers the digest, not the body, so an attacker who rewrites
+    #    evidence.cluster (99 -> 1) and replays the original digest+signature would sail
+    #    through a naive verify_envelope(body["digest"], ...). This caller did exactly that
+    #    until 2026-07-17. Recomputing is what binds the signature to THIS payload.
+    digest = digest_for_body(body)
+    authentic = verify_envelope(digest, env, pinned_key) and digest == body.get("digest")
     name = body.get("name") or f"#{agent_id}"
     print(f"\n▸ Buyer agent wants to pay {name} (#{agent_id}) ${amount_usd:,.2f}.")
     print(f"  KYA verdict: {verdict} (score {body['score']}) · earned ceiling "

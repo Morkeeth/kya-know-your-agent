@@ -14,6 +14,8 @@ Key resolution (first that works):
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import time
 from pathlib import Path
@@ -119,3 +121,31 @@ def verify(message: bytes | str, signature_hex: str, pubkey_hex: str) -> bool:
         return True
     except Exception:  # noqa: BLE001 — any failure = invalid
         return False
+
+
+def digest_for_body(body: dict) -> str:
+    """Recompute a verdict's digest from a raw /verify response body.
+
+    **A caller MUST use this instead of trusting `body["digest"]`.** The signature covers
+    the digest, not the body — so an attacker who edits the body and replays the ORIGINAL
+    digest + signature passes a naive `verify_envelope(body["digest"], ...)` check. That is
+    exactly what the reference caller did until 2026-07-17. Recomputing the digest from the
+    bytes you actually received is what makes the signature bind to THIS payload.
+
+    Mirrors `Verdict.canonical_core()` in oracle/engine.py; a test pins the two together so
+    they cannot drift apart (tests/test_evidence_signed.py).
+    """
+    payload_sha256 = hashlib.sha256(json.dumps(
+        {"evidence": body.get("evidence"),
+         "reasons": body.get("reasons"),
+         "signals": body.get("signals")},
+        sort_keys=True, separators=(",", ":"), default=str,
+    ).encode()).hexdigest()
+    core = json.dumps(
+        {"agent_id": body["agent_id"], "verdict": body["verdict"],
+         "score": body["score"], "confidence": body["confidence"],
+         "max_safe_usd": body["max_safe_usd"],
+         "payload_sha256": payload_sha256},
+        sort_keys=True, separators=(",", ":"),
+    )
+    return hashlib.sha256(core.encode()).hexdigest()
