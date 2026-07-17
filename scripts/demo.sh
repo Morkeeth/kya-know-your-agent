@@ -77,7 +77,7 @@ curl -s --max-time 15 "$KYA_URL/health" | "$PY" -c 'import sys,json; d=json.load
 # ══ [LIVE] the clean spread - real deployed responses, real agents ═══════════
 echo; echo "══════════ [LIVE]  THE SPREAD - KYA discriminates on real agents ══════════"
 live_verify 2118 SAFE    "✅ Otto AI - a proven provider (220 settled sales)"
-live_verify 2023 SAFE    "✅ Onchain Data Explorer - 800+ sales, all endpoints serving"
+live_verify 3345 SAFE    "✅ Eat This? - 550 sales, 5.50 USDT settled, endpoint serving -> ceiling \$16.50"
 live_verify 3733 CAUTION "⚠️  Scope - barely proven (one sale)"
 live_verify 3369 CAUTION "⚠️  WhalePulse - live but UNPROVEN (nobody has used it)"
 live_verify 3820 BLOCK   "⛔ Sentiment Oracle - listed & online, but endpoints 502 + zero sales"
@@ -85,7 +85,7 @@ live_verify 3820 BLOCK   "⛔ Sentiment Oracle - listed & online, but endpoints 
 # ══ [LIVE] KYA in the payment loop - the caller REFUSES on BLOCK ══════════════
 echo; echo "══════════ [LIVE]  KYA IN THE LOOP - a buyer agent gates its payments ══════════"
 echo "(reference integration: fetch verdict → verify signature against pinned key → refuse on BLOCK)"
-KYA_URL="$KYA_URL" "$PY" scripts/demo_caller.py 2118 2023 3820 || FAIL=1
+KYA_URL="$KYA_URL" "$PY" scripts/demo_caller.py 2118 3345 3820 || FAIL=1
 
 # ══ [CONTROLLED] the detectors firing - real engine, labelled TEST agent ══════
 echo; echo "══════════ [CONTROLLED]  THE DETECTORS - real engine/scanner, TEST fixture ══════════"

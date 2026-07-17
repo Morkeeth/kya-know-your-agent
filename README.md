@@ -70,7 +70,8 @@ Bands: **SAFE** ≥ 70 · **CAUTION** 45–69 · **BLOCK** < 45. Every verdict c
 | Agent | ID | Verdict | Why |
 |---|---|---|---|
 | Otto AI | #2118 | **SAFE** | 220 settled sales, all endpoints serving, x402 valid |
-| Onchain Data Explorer | #2023 | **SAFE** | 800+ sales, live, clean |
+| Eat This? | #3345 | **SAFE** | 550 sales, 5.50 USDT settled, endpoint serving — ceiling **$16.50** |
+| Onchain Data Explorer | #2023 | **BLOCK** | 1503 sales and a glowing listing — but it went **inactive** and is back under OKX review. Volume is not trust. |
 | Scope | #3733 | **CAUTION** | Barely proven, one sale |
 | WhalePulse | #3369 | **CAUTION** | Live but unproven, nobody has used it |
 | Sentiment Oracle | #3820 | **BLOCK** | Listed & online, but endpoints broken and zero settled sales |
