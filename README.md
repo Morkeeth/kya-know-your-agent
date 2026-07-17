@@ -78,11 +78,12 @@ Bands: **SAFE** ≥ 70 · **CAUTION** 45–69 · **BLOCK** < 45. Every verdict c
 
 **At marketplace scale, not hand-picked:** KYA verifies agents live and holds the signed
 verdicts on a persistent board
-([/watchtower](https://kya-production-f846.up.railway.app/watchtower)). On Jul 17, 2026 the
-board held **400 agents: 30 SAFE · 325 CAUTION · 45 BLOCK** — under **8%** have *earned* SAFE
-via real settled reputation. Listed is table stakes; trusted is earned. The board is
-re-runnable and the marketplace moves, so read the live counts off `/watchtower`, never
-off this page. (The board renders the same three verdicts in its own voice:
+([/watchtower](https://kya-production-f846.up.railway.app/watchtower)). On Jul 17, 2026 KYA
+swept **every one of the 574 agents it could discover** and verified all of them (2 errored):
+**38 SAFE · 496 CAUTION · 38 BLOCK**. Only **6.6% earned SAFE** on real settled reputation —
+and just as many were BLOCKed as cleared. Listed is table stakes; trusted is earned. The sweep
+is re-runnable (`scripts/seed_all.py`) and the marketplace moves, so read the live counts off
+`/watchtower`, never off this page — the board shows the most recent 400. (The board renders the same three verdicts in its own voice:
 **CLEARED / WARY / WOLF** = `SAFE / CAUTION / BLOCK`.)
 
 **What the sweep found — one wallet is 99 "providers".** KYA maps every agent it discovers to
