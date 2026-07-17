@@ -35,6 +35,14 @@ _TEST_MARKERS = ("测试", "riskcontrol", "test buyer", "testbuyer", "demo agent
 
 SAFE, CAUTION, BLOCK = "SAFE", "CAUTION", "BLOCK"
 
+# Named so the guide (oracle/guide.py) renders the REAL numbers instead of restating them
+# beside the code, where they rot. A doc that retypes a threshold is a doc that will lie.
+SAFE_MIN = 70        # score >= SAFE_MIN  -> SAFE
+CAUTION_MIN = 45     # CAUTION_MIN..SAFE_MIN-1 -> CAUTION; below -> BLOCK
+BLOCK_MAX = CAUTION_MIN - 1
+CEIL_MULT_SAFE = 3.0     # max_safe_usd = volume * mult * confidence
+CEIL_MULT_CAUTION = 0.5  # trivial amounts only, until proven
+
 
 @dataclass
 class Signal:
@@ -538,7 +546,7 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     caps = [s.cap for s in signals if s.cap is not None]
     ceiling = min(caps) if caps else 100
     score = max(0, min(100, min(raw, ceiling)))
-    verdict = SAFE if score >= 70 else CAUTION if score >= 45 else BLOCK
+    verdict = SAFE if score >= SAFE_MIN else CAUTION if score >= CAUTION_MIN else BLOCK
     max_safe = _safe_ceiling(verdict, confidence, volume)
 
     reasons = _headline_reasons(signals, score, ceiling)
@@ -632,7 +640,7 @@ def _safe_ceiling(verdict: str, confidence: int, volume: float) -> float:
     if verdict == BLOCK or volume <= 0:
         return 0.0
     conf = max(0.0, min(1.0, confidence / 100.0))
-    mult = 3.0 if verdict == SAFE else 0.5   # CAUTION = trivial amounts only, until proven
+    mult = CEIL_MULT_SAFE if verdict == SAFE else CEIL_MULT_CAUTION
     return round(volume * mult * conf, 4)
 
 

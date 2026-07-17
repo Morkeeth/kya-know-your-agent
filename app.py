@@ -79,12 +79,35 @@ def root() -> dict:
     return {
         "service": "KYA - Know Your Agent",
         "what": TAGLINE,
+        "guide": "/guide.md  (machine-readable) · /guide (human)",
         "verify": "/verify?agentId=2118  (or ?name=Otto%20AI)",
         "passport": "/passport?agentId=2118  (shareable SVG)",
         "seal": "/seal?agentId=2118  (embeddable SVG badge)",
         "pubkey": "/pubkey",
         "verdicts": ["SAFE", "CAUTION", "BLOCK"],
     }
+
+
+
+@app.get("/guide")
+def guide():
+    """The KYA guide, for a person: the problem, the product, the scoring, the research.
+
+    Same content as /guide.md — rendered once from oracle/guide.GUIDE so the human page and
+    the machine page can never disagree.
+    """
+    from oracle.guide import render_guide_html
+    from oracle.watchtower import _CSS, _eye, _nav
+    return Response(render_guide_html(nav=_nav("guide"), eye=_eye("SAFE", 30), css=_CSS),
+                    media_type="text/html")
+
+
+@app.get("/guide.md")
+def guide_md():
+    """The same guide, for an AGENT. An LLM/agent fetches this and follows it — a styled
+    page is unreadable to a caller, and a caller is the audience that matters here."""
+    from oracle.guide import render_guide_md
+    return Response(render_guide_md(), media_type="text/markdown; charset=utf-8")
 
 
 @app.get("/health")

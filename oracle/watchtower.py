@@ -62,7 +62,8 @@ def _nav(active: str, host: str = "") -> str:
     """One bar, three surfaces. There was no way to get from the board to the operator
     graph except by typing the URL — the two halves of the product never linked to each
     other. Active surface is the only lit item; the rest stay muted until hovered."""
-    items = [("watchtower", "WATCHTOWER"), ("operators", "OPERATORS"), ("changes", "CHANGES")]
+    items = [("watchtower", "WATCHTOWER"), ("operators", "OPERATORS"),
+             ("changes", "CHANGES"), ("guide", "GUIDE")]
     links = "".join(
         f'<a class="nav-a{" on" if k == active else ""}" href="{host}/{k}">{label}</a>'
         for k, label in items)
