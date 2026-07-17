@@ -34,6 +34,8 @@ case "${1:-}" in
     echo "usage: kya [<agentId> [<amountUSD>]] | kya demo | kya board" >&2
     exit 2 ;;
   *)
+    # kya <id>          -> full security audit for that agent
+    # kya <id> <amount> -> the pay decision at that amount
     if [ -n "${2:-}" ]; then exec "$PY" scripts/demo_caller.py "$1:$2"
-    else exec "$PY" scripts/demo_caller.py "$1:5.00"; fi ;;
+    else exec "$PY" scripts/demo_caller.py "$1"; fi ;;
 esac

@@ -91,6 +91,72 @@ def _why(body: dict) -> str:
     return raw[:64].rstrip(" ;,.")
 
 
+# The checks KYA runs, in the order it runs them. Each maps to the signal keys that can
+# speak for it. A security scanner is a CONTRADICTION detector: silent = it ran and found
+# nothing (the scanners run on every call — verified live). A negative signal in a group
+# flags it. This is the "scan x, y, z and give a rating" surface, printed honestly.
+_CHECKS = [
+    ("endpoint liveness",   ("liveness", "uptime", "x402")),
+    ("malicious-host scan",  ("malicious",)),
+    ("prompt-injection scan", ("content", "tool_poisoning")),
+    ("endpoint safety",      ("ssrf",)),
+    ("identity binding",     ("domain_binding", "payto")),
+    ("domain age",           ("domain_age",)),
+    ("reviewer integrity",   ("self_review", "review_ring", "review_concentration")),
+    ("operator / sybil",     ("owner_fleet", "owner_fleet_info")),
+    ("settled reputation",   ("sales", "reputation", "security_rating", "review")),
+]
+
+
+def audit(host: str, pinned_key: str, agent_id: str) -> None:
+    """Print the full audit: every check KYA ran, its result, then the signed verdict."""
+    body = ask_kya(host, agent_id)
+    sigs = body.get("signals") or []
+    by_key = {}
+    for s in sigs:
+        by_key.setdefault(s["key"], s)
+
+    digest = digest_for_body(body)
+    signed = verify_envelope(digest, body.get("signature") or {}, pinned_key) \
+        and digest == body.get("digest")
+
+    v = body["verdict"]
+    name = (body.get("name") or f"#{agent_id}")[:30]
+    t = _TONE.get(v, GREY)
+
+    print()
+    print(f"  {LIME}{BOLD}KYA{OFF}  {FAINT}security audit{OFF}"
+          f"{FAINT}{'#' + str(agent_id):>48}{OFF}")
+    print(f"  {INK}{name}{OFF}")
+    print(f"  {FAINT}{'─' * 66}{OFF}")
+
+    for label, keys in _CHECKS:
+        hit = [by_key[k] for k in keys if k in by_key]
+        bad = [s for s in hit if s["severity"] in ("warn", "critical")]
+        if bad:
+            mark, tone, note = "FLAG", (GREY if any(s["severity"] == "critical" for s in bad) else DIM), \
+                _clip(bad[0]["reason"])
+        elif hit:
+            mark, tone, note = "PASS", LIME, _clip(hit[0]["reason"])
+        else:
+            mark, tone, note = "CLEAN", DIM, "scanned, nothing found"
+        print(f"    {FAINT}{_pad(label, 22)}{OFF}{tone}{_pad(mark, 7)}{OFF}{FAINT}{note}{OFF}")
+
+    print(f"  {FAINT}{'─' * 66}{OFF}")
+    ceil = f"${float(body.get('max_safe_usd') or 0):,.2f}"
+    print(f"  {t}{BOLD}{_pad(v, 8)}{OFF}{FAINT}score {OFF}{t}{_pad(str(body.get('score', 0)), 6)}{OFF}"
+          f"{FAINT}ceiling {OFF}{t}{_pad(ceil, 9)}{OFF}"
+          f"{FAINT}signed {OFF}{LIME if signed else GREY}{'yes' if signed else 'NO'}{OFF}")
+    print()
+
+
+def _clip(reason: str) -> str:
+    for ch in ("✅", "⛔", "⚠", "️", "🔄"):
+        reason = reason.replace(ch, "")
+    reason = " ".join(reason.split()).split("(~")[0].split(" — ")[0].split("(assumes")[0]
+    return reason[:40].rstrip(" ;,.")
+
+
 def gate_transaction(host: str, pinned_key: str, agent_id: str, amount_usd: float,
                      cache: dict) -> str:
     """Gate ONE payment of `amount_usd` on the signed verdict AND the signed ceiling.
@@ -147,8 +213,15 @@ def _parse(args: list[str]) -> list[tuple[str, list[float]]]:
 
 
 def main() -> int:
-    beats = _parse(sys.argv[1:]) if len(sys.argv) > 1 else DEFAULT_BEATS
+    args = sys.argv[1:]
     key = pin_oracle_key(HOST)
+
+    # `kya <id>` with no amount => the full security audit for that agent.
+    if len(args) == 1 and args[0].isdigit():
+        audit(HOST, key, args[0])
+        return 0
+
+    beats = _parse(args) if args else DEFAULT_BEATS
 
     print()
     print(f"  {LIME}{BOLD}KYA{OFF}  {FAINT}know your agent{OFF}"
