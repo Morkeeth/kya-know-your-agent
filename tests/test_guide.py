@@ -57,3 +57,51 @@ def test_no_raw_markdown_leaks_into_the_html():
     body = htm.split('<div class="g-foot">')[0]
     assert "**" not in body
     assert "<i>" in body and "<b>" in body
+
+
+def test_cli_columns_survive_a_chinese_agent_name():
+    """The marketplace is full of CJK names (这个能吃吗? is a demo beat). len() counts them
+    as one cell and the terminal renders two, so every column right of the name drifts —
+    which is exactly what it did on camera-check."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import demo_caller as dc
+
+    assert dc._dwidth("Otto AI") == 7
+    assert dc._dwidth("这个能吃吗") == 10          # 5 wide chars = 10 cells
+    assert dc._dwidth(dc._pad("这个能吃吗", 20)) == 20
+    assert dc._dwidth(dc._pad("Otto AI", 20)) == 20
+
+
+def test_cli_reason_is_one_readable_clause():
+    """The raw reason carries its basis caveat inline and wrapped to three lines on screen,
+    burying the decision under its own footnote. The caveat stays in the JSON; the CLI gets
+    one line, and no emoji (they are on the design kill list)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import demo_caller as dc
+
+    raw = {"reasons": ["✅ 220 sales (~0.22 USDT settled @ ≥0.001; services priced 0.001-0.15, "
+                       "so this is the floor (assumes every sale was the cheapest)) — high "
+                       "count offsets sub-cent pricing."]}
+    why = dc._why(raw)
+    assert why == "220 sales"
+    assert len(why) <= 64
+    for emoji in ("✅", "⛔", "⚠️"):
+        assert emoji not in why
+
+
+def test_cli_never_uses_traffic_light_colour():
+    """Same rule as the boards: one hue at three luminances. If a red/amber ANSI escape
+    appears in the CLI, the brand has split again."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import demo_caller as dc
+
+    # Under pytest there is no tty, so _TTY is False and every tone is "" — which is the
+    # correct behaviour (NO_COLOR / piped output must stay plain). So assert on the palette
+    # the module declares, not on the runtime-disabled values.
+    src = (Path(__file__).resolve().parent.parent / "scripts" / "demo_caller.py").read_text()
+    import re as _re
+    rgbs = set(_re.findall(r'_c\("(\d+;\d+;\d+)"\)', src))
+    assert len(rgbs) >= 3, f"expected a 3-step ramp, found {rgbs}"
+    assert "188;232;47" in rgbs                  # brand lime, same as the boards
+    for banned in ("31m", "33m", "91m", "93m"):  # ansi red / yellow
+        assert f"\\033[{banned}" not in src
