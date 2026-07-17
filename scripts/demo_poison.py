@@ -6,7 +6,8 @@ An agent is approved with a CLEAN tool description (SAFE). Later it silently edi
 that description to smuggle an instruction the calling model would obey and a human
 reviewer would skim past. KYA re-verifies, the real scanner catches the injection,
 the verdict flips SAFE -> BLOCK, and the rug-pull lands on /changes. This is the
-thing a point-in-time manual review (Ledger's MCP process) structurally cannot do.
+thing a point-in-time manual review structurally cannot do: it certifies a snapshot,
+while the agent it certified is free to change the next minute.
 
 Real scanner + real engine + real store; only the marketplace record is a labelled
 test agent. Run: ./.venv/bin/python scripts/demo_poison.py

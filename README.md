@@ -1,4 +1,8 @@
-# KYA - Know Your Agent 👁️
+<p align="center">
+  <img src="oracle/assets/kya_avatar.png" alt="KYA - Know Your Agent" width="132" height="132">
+</p>
+
+# KYA - Know Your Agent
 
 ### Don't rate agents. Price them.
 
@@ -9,10 +13,25 @@ Everyone else returns a score. KYA returns **`max_safe_usd`**: the largest singl
 **Live:** https://kya-production-f846.up.railway.app · **ASP:** OKX.AI Agent #5290 · **Verdicts are Ed25519-signed.**
 
 ```bash
-curl "https://kya-production-f846.up.railway.app/verify?agentId=2118"   # Otto AI -> SAFE, signed
+# /verify speaks x402, so an UNPAID call answers 402 + terms — by design, not a bug.
+# That IS the marketplace hire path: a listed endpoint that returns 200 to an unpaid
+# probe reports valid:false and the hire is blocked.
+curl -i "https://kya-production-f846.up.railway.app/verify?agentId=2118"   # -> HTTP 402 + terms
+
+# A caller presents X-PAYMENT. At the free tier's amount "0" nothing settles on-chain;
+# this is the zero-value payload a real x402 client sends against a fee-0 challenge.
+XPAY=$(printf '%s' '{"x402Version":2,"scheme":"exact","network":"eip155:196","payload":{"amount":"0"}}' | base64 | tr -d '\n')
+curl -H "X-PAYMENT: $XPAY" "https://kya-production-f846.up.railway.app/verify?agentId=2118"   # Otto AI -> SAFE, signed
 ```
 
-**Real, not a demo.** The free `/verify` speaks x402 (an unpaid probe gets a `402` challenge, not a `200`), and the paid tier **`/audit` settles real USDT** — `$0.10` on X Layer through OKX's own facilitator (`okxweb3-app-x402`), verified on-chain before the audit is served. Money actually moves through the listed endpoint; it is not a mock. And every `/verify` now returns a machine-readable **`cluster`** field, so a calling agent can branch on operator concentration without parsing prose.
+**Real, not a demo.** The free `/verify` speaks x402 (an unpaid probe gets a `402` challenge, not a `200`), and the paid tier **`/audit` settles real USDT** — `$0.10` on X Layer through OKX's own facilitator (`okxweb3-app-x402`), verified on-chain before the audit is served. Money actually moves through the listed endpoint; it is not a mock — **here is the receipt**:
+
+> **Settled on X Layer:** tx [`0xf16355f714aa7f75fe84f904c553916693e7f9bba3db10c90e97e76e3c51cdaa`](https://www.oklink.com/xlayer/tx/0xf16355f714aa7f75fe84f904c553916693e7f9bba3db10c90e97e76e3c51cdaa)
+> · block `65446213` · `0.10 USDT` (raw `100000`, 6dp) transferred to KYA's payTo wallet.
+> Verify it yourself against any X Layer RPC — `eth_getTransactionReceipt` shows the ERC-20
+> `Transfer` on `0x779ded0c9e1022225f8e0630b35a9b54be713736`.
+
+And `/verify` returns a machine-readable **`cluster`** field whenever the counterparty's operator runs 2+ known agents, so a calling agent can branch on operator concentration without parsing prose.
 
 ---
 
@@ -76,10 +95,10 @@ exposes it, and search is keyword-matched and never returns unlisted agents — 
 of the 99. Enumeration found all 99, in ten seconds. That gap *is* the product: KYA prices
 the **operator**, not the listing.
 
-This is no longer a slide — it's a **live field**. Every `/verify` returns
-`evidence.cluster` (`owner`, `fleet_size`, `fleet_sales`, `sales_per_agent`, `penalized`,
-`risk`), and `/operators` renders the whole marketplace grouped by controlling wallet — the
-one view OKX's own UI structurally cannot draw.
+This is no longer a slide — it's a **live field**. Any `/verify` whose counterparty's operator
+runs 2+ known agents returns `evidence.cluster` (`owner`, `fleet_size`, `fleet_sales`,
+`sales_per_agent`, `penalized`, `risk`), and `/operators` renders the whole marketplace grouped
+by controlling wallet — the one view OKX's own UI structurally cannot draw.
 
 And the guard matters as much as the catch: two other wallets run 32 and 7 agents with real
 customers. They are **disclosed and not penalised**. Fleet size alone is never fraud.

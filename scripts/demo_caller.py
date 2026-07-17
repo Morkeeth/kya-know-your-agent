@@ -14,6 +14,8 @@ Trust model: fetch the oracle key ONCE from /pubkey and pin it. Then every verdi
 is checked with verify_envelope against that pinned key (a rogue oracle can't ship
 its own key and self-sign SAFE) and against the signed freshness window.
 """
+import base64
+import json
 import sys
 from pathlib import Path
 
@@ -23,6 +25,17 @@ import httpx  # noqa: E402
 from oracle.signing import verify_envelope  # noqa: E402
 
 HOST = "https://kya-production-f846.up.railway.app"
+
+# The listed /verify speaks x402 (oracle/x402.py): an unpaid call MUST answer 402 + terms,
+# because that is the marketplace's hire path. A real caller therefore presents X-PAYMENT.
+# At the free tier's amount "0" nothing settles on-chain — this is the zero-value payload a
+# real x402 client sends against a fee-0 challenge, not a simulated payment.
+X_PAYMENT = base64.b64encode(json.dumps({
+    "x402Version": 2,
+    "scheme": "exact",
+    "network": "eip155:196",
+    "payload": {"amount": "0"},
+}, separators=(",", ":")).encode()).decode()
 
 # What a caller does with each verdict — reputation gating a real payment decision.
 POLICY = {
@@ -39,7 +52,12 @@ def pin_oracle_key(host: str) -> str:
 
 
 def ask_kya(host: str, agent_id: str) -> dict:
-    return httpx.get(f"{host}/verify", params={"agentId": agent_id}, timeout=20).json()
+    return httpx.get(
+        f"{host}/verify",
+        params={"agentId": agent_id},
+        headers={"X-PAYMENT": X_PAYMENT},
+        timeout=20,
+    ).json()
 
 
 def gate_transaction(host: str, pinned_key: str, agent_id: str, amount: str = "5 USDC") -> bool:
@@ -69,14 +87,22 @@ def main():
     print("== KYA in the loop: gating payments on signed trust verdicts ==")
     key = pin_oracle_key(HOST)
     print(f"pinned oracle key: {key[:16]}…")
-    paid, refused = 0, 0
+    paid, refused, errors = 0, 0, 0
     for aid in ids:
         try:
             (paid := paid + 1) if gate_transaction(HOST, key, aid) else (refused := refused + 1)
         except (httpx.HTTPError, KeyError) as e:
             print(f"  #{aid}: could not verify ({e})")
+            errors += 1
     print(f"\nSummary: {paid} payment(s) allowed, {refused} refused/held by KYA.")
+    # A REFUSE is a success (that is the product working). An ERROR is not: it means the
+    # reference integration could not reach a verdict. Exit non-zero so a broken caller can
+    # never report green — this script silently exited 0 while failing every call (Jul 17).
+    if errors:
+        print(f"✗ {errors} agent(s) errored — the caller could not obtain a verdict.")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

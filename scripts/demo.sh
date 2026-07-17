@@ -24,6 +24,13 @@ PY="${PY:-./.venv/bin/python}"
 export ONCHAINOS_BIN="${ONCHAINOS_BIN:-$HOME/.local/bin/onchainos}"
 FAIL=0
 
+# The listed /verify speaks x402: an unpaid call MUST get 402 + terms, not 200 (that is
+# the marketplace hire path — see oracle/x402.py). So every caller, including this demo,
+# presents X-PAYMENT. At the free tier's amount "0" NOTHING settles on-chain; this is the
+# zero-value payload a real x402 client sends against a fee-0 challenge. It buys nothing
+# and proves nothing — it is the header the gate requires, not a simulated payment.
+XPAY="$(printf '%s' '{"x402Version":2,"scheme":"exact","network":"eip155:196","payload":{"amount":"0"}}' | base64 | tr -d '\n')"
+
 rule() { printf '─%.0s' {1..66}; echo; }
 
 # live_verify <agentId> <expected-verdict> <label>
@@ -36,7 +43,7 @@ live_verify() {
   # Retry transient empties/5xx (e.g. a cold instance) so a single network blip
   # during recording can't red the demo. Real responses only; no fabrication.
   for attempt in 1 2 3 4; do
-    body=$(curl -s --max-time 30 "$KYA_URL/verify?agentId=$id")
+    body=$(curl -s --max-time 30 -H "X-PAYMENT: $XPAY" "$KYA_URL/verify?agentId=$id")
     printf '%s' "$body" | "$PY" -c 'import sys,json;sys.exit(0 if "verdict" in (json.load(sys.stdin) or {}) else 1)' 2>/dev/null && break
     [ "$attempt" -lt 4 ] && sleep 2
   done
