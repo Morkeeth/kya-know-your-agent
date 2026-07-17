@@ -19,6 +19,7 @@ Idempotent and safe to re-run (this is what a freshness cron would call).
 from __future__ import annotations
 
 import argparse
+import base64
 import concurrent.futures as cf
 import json
 import os
@@ -64,9 +65,21 @@ def discover_ids() -> dict[str, str]:
     return found
 
 
+# /verify speaks x402: an unpaid call answers 402 + terms, not a verdict (oracle/x402.py).
+# Without this header the whole sweep 402s and seeds nothing — which is exactly what
+# happened silently after the gate shipped (2026-07-16). At the free tier's amount "0"
+# nothing settles on-chain; this is the zero-value payload a real x402 client sends.
+X_PAYMENT = base64.b64encode(json.dumps({
+    "x402Version": 2, "scheme": "exact", "network": "eip155:196",
+    "payload": {"amount": "0"},
+}, separators=(",", ":")).encode()).decode()
+
+
 def verify(aid: str) -> tuple[str, str, object, object]:
     try:
-        with urllib.request.urlopen(f"{KYA_URL}/verify?agentId={aid}", timeout=35) as r:
+        req = urllib.request.Request(
+            f"{KYA_URL}/verify?agentId={aid}", headers={"X-PAYMENT": X_PAYMENT})
+        with urllib.request.urlopen(req, timeout=35) as r:
             d = json.load(r)
         return (aid, d.get("verdict", "?"), d.get("score"), (d.get("name") or "")[:36])
     except Exception as e:  # noqa: BLE001 - a sweep tolerates individual failures
