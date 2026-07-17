@@ -82,7 +82,9 @@ def _why(body: dict) -> str:
     footnote. The caveat is real and stays in the JSON; here it gets one line.
     """
     raw = (body.get("reasons") or ["—"])[0]
-    for ch in ("✅", "⛔", "⚠️", "🔄"):
+    # Includes U+FE0F: ⚠️ is TWO codepoints and removing only the base leaves the
+    # variation selector behind as a floating mark.
+    for ch in ("✅", "⛔", "⚠", "\ufe0f", "🔄"):
         raw = raw.replace(ch, "")
     raw = raw.split("(~")[0].split(" — ")[0].split("(assumes")[0]
     raw = " ".join(raw.split())
