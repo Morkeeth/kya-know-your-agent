@@ -25,14 +25,6 @@ from oracle.signing import verify_envelope  # noqa: E402
 HOST = "https://kya-production-f846.up.railway.app"
 
 
-# What a caller does with each verdict — reputation gating a real payment decision.
-POLICY = {
-    "SAFE":    ("PROCEED", "pay the counterparty"),
-    "CAUTION": ("HOLD", "route to manual review — unproven, do not auto-pay"),
-    "BLOCK":   ("REFUSE", "abort the transaction — do NOT send funds"),
-}
-
-
 def pin_oracle_key(host: str) -> str:
     """Fetch the oracle's Ed25519 key ONCE and pin it. In a real client this is
     hardcoded after first fetch; here we fetch live for the demo."""
@@ -43,44 +35,94 @@ def ask_kya(host: str, agent_id: str) -> dict:
     return httpx.get(f"{host}/verify", params={"agentId": agent_id}, timeout=20).json()
 
 
-def gate_transaction(host: str, pinned_key: str, agent_id: str, amount: str = "5 USDC") -> bool:
+def gate_transaction(host: str, pinned_key: str, agent_id: str, amount_usd: float) -> str:
+    """Gate ONE payment of `amount_usd` on the signed verdict AND the signed ceiling.
+
+    The ceiling is the product. A rating tells you "this one is good"; `max_safe_usd` tells
+    you *how much* good — the largest single payment this counterparty has EARNED, derived
+    from settled volume. So the decision is a function of (verdict, amount), never of the
+    verdict alone. That is the whole difference between rating and pricing, and until
+    2026-07-17 this reference caller ignored the ceiling entirely and branched on the
+    verdict string — the exact behaviour the README mocks. It happily paid 5 USDC to an
+    agent whose signed ceiling was $0.66.
+
+    Returns one of PROCEED / HOLD / REFUSE.
+    """
     body = ask_kya(host, agent_id)
     verdict, digest, env = body["verdict"], body["digest"], body["signature"]
+    ceiling = float(body.get("max_safe_usd") or 0.0)
 
     # 1) Is the verdict AUTHENTIC + FRESH? (pinned key, signed expiry)
     authentic = verify_envelope(digest, env, pinned_key)
     name = body.get("name") or f"#{agent_id}"
-    print(f"\n▸ Buyer agent wants to pay {name} (#{agent_id}) {amount}.")
-    print(f"  KYA verdict: {verdict} (score {body['score']}) · signature "
-          f"{'VALID ✓' if authentic else 'INVALID ✗'}")
+    print(f"\n▸ Buyer agent wants to pay {name} (#{agent_id}) ${amount_usd:,.2f}.")
+    print(f"  KYA verdict: {verdict} (score {body['score']}) · earned ceiling "
+          f"${ceiling:,.2f} · signature {'VALID ✓' if authentic else 'INVALID ✗'}")
     if not authentic:
         print("  DECISION: REFUSE — verdict signature failed to verify. Treat as untrusted.")
-        return False
+        return "REFUSE"
 
-    # 2) Apply policy — reputation gates the payment.
-    action, why = POLICY.get(verdict, ("REFUSE", "unknown verdict"))
-    top = (body.get("reasons") or ["—"])[0]
-    print(f"  why: {top}")
-    print(f"  DECISION: {action} — {why}.")
-    return action == "PROCEED"
+    print(f"  why: {(body.get('reasons') or ['—'])[0]}")
+
+    # 2) A hard verdict refuses at ANY price.
+    if verdict == "BLOCK":
+        print("  DECISION: REFUSE — BLOCK. Abort the transaction, do NOT send funds.")
+        return "REFUSE"
+
+    # 3) THE CEILING. Even a SAFE counterparty is only safe up to what it has earned.
+    #    This is the branch a star rating cannot express.
+    if amount_usd > ceiling:
+        print(f"  DECISION: HOLD — ${amount_usd:,.2f} exceeds the ${ceiling:,.2f} this agent "
+              f"has earned. Split it, or route to manual review.")
+        return "HOLD"
+
+    # 4) Unproven counterparties never auto-pay, regardless of amount.
+    if verdict == "CAUTION":
+        print("  DECISION: HOLD — unproven counterparty; route to manual review.")
+        return "HOLD"
+
+    print(f"  DECISION: PROCEED — ${amount_usd:,.2f} is within the earned ceiling. Pay it.")
+    return "PROCEED"
+
+
+# Each beat is (agentId, amount_usd) — the SAME counterparty at two prices is the point.
+DEFAULT_BEATS = [
+    ("2118", 0.50),   # Otto AI, SAFE, ceiling $0.66  -> PROCEED (under)
+    ("2118", 5.00),   # Otto AI, SAFE, ceiling $0.66  -> HOLD    (over) <- the whole thesis
+    ("3345", 5.00),   # Eat This?, SAFE, ceiling $16.50 -> PROCEED (earned more, gets more)
+    ("3820", 5.00),   # Sentiment Oracle, BLOCK        -> REFUSE  (at any price)
+]
+
+
+def _parse(args: list[str]) -> list[tuple[str, float]]:
+    """`2118:0.50` pairs; a bare id defaults to $5.00."""
+    out = []
+    for a in args:
+        aid, _, amt = a.partition(":")
+        out.append((aid, float(amt) if amt else 5.00))
+    return out
 
 
 def main():
-    ids = sys.argv[1:] or ["2118", "3820"]  # default: a SAFE one and a BLOCK one
-    print("== KYA in the loop: gating payments on signed trust verdicts ==")
+    beats = _parse(sys.argv[1:]) if len(sys.argv) > 1 else DEFAULT_BEATS
+    print("== KYA in the loop: pricing payments on signed trust verdicts ==")
+    print("   (the decision is a function of verdict AND amount — that is what a rating cannot do)")
     key = pin_oracle_key(HOST)
     print(f"pinned oracle key: {key[:16]}…")
-    paid, refused, errors = 0, 0, 0
-    for aid in ids:
+
+    tally = {"PROCEED": 0, "HOLD": 0, "REFUSE": 0}
+    errors = 0
+    for aid, amt in beats:
         try:
-            (paid := paid + 1) if gate_transaction(HOST, key, aid) else (refused := refused + 1)
-        except (httpx.HTTPError, KeyError) as e:
+            tally[gate_transaction(HOST, key, aid, amt)] += 1
+        except (httpx.HTTPError, KeyError, ValueError) as e:
             print(f"  #{aid}: could not verify ({e})")
             errors += 1
-    print(f"\nSummary: {paid} payment(s) allowed, {refused} refused/held by KYA.")
-    # A REFUSE is a success (that is the product working). An ERROR is not: it means the
-    # reference integration could not reach a verdict. Exit non-zero so a broken caller can
-    # never report green — this script silently exited 0 while failing every call (Jul 17).
+    print(f"\nSummary: {tally['PROCEED']} paid · {tally['HOLD']} held (over ceiling or unproven) "
+          f"· {tally['REFUSE']} refused.")
+    # HOLD and REFUSE are the product WORKING. An ERROR is not: it means the reference
+    # integration could not reach a verdict. Exit non-zero so a broken caller can never
+    # report green — this script silently exited 0 while failing every call (Jul 17).
     if errors:
         print(f"✗ {errors} agent(s) errored — the caller could not obtain a verdict.")
         return 1

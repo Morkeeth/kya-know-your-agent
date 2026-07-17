@@ -84,8 +84,8 @@ live_verify 3820 BLOCK   "⛔ Sentiment Oracle - listed & online, but endpoints 
 
 # ══ [LIVE] KYA in the payment loop - the caller REFUSES on BLOCK ══════════════
 echo; echo "══════════ [LIVE]  KYA IN THE LOOP - a buyer agent gates its payments ══════════"
-echo "(reference integration: fetch verdict → verify signature against pinned key → refuse on BLOCK)"
-KYA_URL="$KYA_URL" "$PY" scripts/demo_caller.py 2118 3345 3820 || FAIL=1
+echo "(reference integration: fetch verdict → verify signature against pinned key → PRICE the payment against the earned ceiling)"
+KYA_URL="$KYA_URL" "$PY" scripts/demo_caller.py || FAIL=1
 
 # ══ [CONTROLLED] the detectors firing - real engine, labelled TEST agent ══════
 echo; echo "══════════ [CONTROLLED]  THE DETECTORS - real engine/scanner, TEST fixture ══════════"
