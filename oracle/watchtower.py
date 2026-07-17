@@ -1,8 +1,8 @@
 """
-The Watchtower — KYA's live board of agent trust verdicts and crossings.
+The Watchtower — KYA's live board of agent trust verdicts and changes.
 
 Renders in the KYA passport identity (lime #BCE82F on near-black, the eye motif,
-customs-stamp verdicts CLEARED / WARY / WOLF). Self-contained HTML, no external
+verdicts SAFE / CAUTION / BLOCK). Self-contained HTML, no external
 assets, so it serves under the same locked-down surface as the passport.
 """
 from __future__ import annotations
@@ -24,7 +24,10 @@ _C = {
     "dark": "#3C4522",   # refused, nearly out
 }
 _ACCENT = {"SAFE": _C["lime"], "CAUTION": _C["dim"], "BLOCK": _C["dark"]}
-_STAMP = {"SAFE": "CLEARED", "CAUTION": "WARY", "BLOCK": "WOLF"}
+# The board says exactly what the API says. It used to read CLEARED / WARY / WOLF —
+# a second vocabulary for the same three values, so a judge cross-referencing the
+# payload saw drift, and "WOLF" is a costume on a security product.
+_STAMP = {"SAFE": "SAFE", "CAUTION": "CAUTION", "BLOCK": "BLOCK"}
 
 
 def _ago(ts: int) -> str:
@@ -54,6 +57,17 @@ def _eye(state: str, size: int = 26) -> str:
             f'<ellipse cx="13" cy="13" rx="3.4" ry="{ry}" fill="{c}"/>{slash}</svg>')
 
 
+
+def _nav(active: str, host: str = "") -> str:
+    """One bar, three surfaces. There was no way to get from the board to the operator
+    graph except by typing the URL — the two halves of the product never linked to each
+    other. Active surface is the only lit item; the rest stay muted until hovered."""
+    items = [("watchtower", "WATCHTOWER"), ("operators", "OPERATORS"), ("changes", "CHANGES")]
+    links = "".join(
+        f'<a class="nav-a{" on" if k == active else ""}" href="{host}/{k}">{label}</a>'
+        for k, label in items)
+    return f'<nav class="nav">{links}<span class="nav-tag">X LAYER · OKX.AI</span></nav>'
+
 def render_watchtower(verdicts: list[dict], changes: list[dict], *, host: str = "") -> str:
     counts = {"SAFE": 0, "CAUTION": 0, "BLOCK": 0}
     for v in verdicts:
@@ -61,7 +75,7 @@ def render_watchtower(verdicts: list[dict], changes: list[dict], *, host: str = 
 
     rows = "".join(_row(v, host) for v in verdicts) or _empty_row()
     crossings = "".join(_crossing(c) for c in changes) or (
-        f'<div class="cx-empty">No crossings yet — verdicts are stable.</div>')
+        f'<div class="cx-empty">No changes yet — verdicts are stable.</div>')
 
     tally = "".join(
         f'<div class="tally"><span class="tnum" style="color:{_ACCENT[k]}">{counts[k]}</span>'
@@ -70,7 +84,8 @@ def render_watchtower(verdicts: list[dict], changes: list[dict], *, host: str = 
 
     now = time.strftime("%d %b %Y · %H:%M UTC", time.gmtime()).upper()
     return _PAGE.format(css=_CSS, eye=_eye("SAFE", 30), rows=rows, crossings=crossings,
-                        tally=tally, now=now, total=len(verdicts))
+                        tally=tally, now=now, total=len(verdicts),
+                        nav=_nav("watchtower", host))
 
 
 def _row(v: dict, host: str) -> str:
@@ -107,11 +122,25 @@ def _crossing(c: dict) -> str:
 
 
 def _empty_row() -> str:
-    return ('<div class="row-empty">No agents on the board yet. '
+    return ('<div class="row-empty">No agents verified yet. '
             'Call <code>/verify?agentId=…</code> to admit one.</div>')
 
 
 _CSS = """
+
+.nav{display:flex;align-items:center;gap:0;margin-top:16px;border-top:1px solid #26262A;
+  border-bottom:1px solid #26262A}
+.nav-a{font-family:'SF Mono',Menlo,monospace;font-size:10px;letter-spacing:2.5px;color:#8A8A8E;
+  text-decoration:none;padding:11px 16px;border-right:1px solid #26262A;transition:color .12s,background .12s}
+.nav-a:first-child{padding-left:0;border-left:none}
+.nav-a:hover{color:#FFFFFF;background:#141416}
+.nav-a.on{color:#BCE82F}
+.nav-tag{margin-left:auto;font-family:'SF Mono',Menlo,monospace;font-size:10px;letter-spacing:2.5px;
+  color:#8A8A8E;padding:11px 0}
+.tallies{border-bottom:1px solid #26262A}
+.tally{padding:18px 26px 18px 0;border-right:1px solid #26262A}
+.tally:last-child{border-right:none}
+.board{border:1px solid #26262A}
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0B0B0C;color:#FFFFFF;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;
   -webkit-font-smoothing:antialiased;padding:clamp(16px,4vw,48px);line-height:1.4;overflow-x:hidden}
@@ -177,16 +206,16 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>KYA · Watchtower</title><style>{css}</style></head><body><div class="wrap">
 <header class="top">
   <div class="brand">{eye}<h1>KYA</h1></div>
-  <div class="kicker">AGENT PASSPORT CONTROL · WATCHTOWER &nbsp;·&nbsp; <b>X LAYER · OKX.AI</b></div>
+  {nav}
   <div class="tallies">{tally}</div>
 </header>
 <div class="grid">
   <section>
-    <div class="sec-h"><span>Manifest · {total} on watch</span><span>VERDICT</span></div>
+    <div class="sec-h"><span>{total} agents verified</span><span>VERDICT</span></div>
     <div class="board">{rows}</div>
   </section>
   <section>
-    <div class="sec-h"><span>Recent crossings</span><span>WHO TURNED</span></div>
+    <div class="sec-h"><span>Recent changes</span><span>WHAT MOVED</span></div>
     <div class="cx-panel">{crossings}</div>
   </section>
 </div>
@@ -215,7 +244,7 @@ def _op_verdict(o: dict) -> tuple[str, str]:
     # A fleet is only called a farm when it shows no real customers AND looks
     # generated. An operator with genuine sales is a business, not a farm.
     if agents >= 5 and sales < agents and _stems(o.get("names") or []):
-        return "BLOCK", "ONE FACE"
+        return "BLOCK", "ONE OWNER"
     if sales >= agents:
         return "SAFE", "BUSINESS"
     return "CAUTION", "THIN"
@@ -263,13 +292,28 @@ def render_operators(data: dict, *, host: str = "") -> str:
     )
     rows = "".join(_op_row(o, i + 1) for i, o in enumerate(ops)) or _empty_row()
     return _OPS_PAGE.format(
-        css=_CSS + _OPS_CSS, eye=_eye("WOLF", 34), tally=tally, rows=rows,
+        css=_CSS + _OPS_CSS, eye=_eye("BLOCK", 34), tally=tally, rows=rows,
+        nav=_nav("operators", host),
         total=total_owners, top_n=top_n,
         now=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
     )
 
 
 _OPS_CSS = """
+
+.nav{display:flex;align-items:center;gap:0;margin-top:16px;border-top:1px solid #26262A;
+  border-bottom:1px solid #26262A}
+.nav-a{font-family:'SF Mono',Menlo,monospace;font-size:10px;letter-spacing:2.5px;color:#8A8A8E;
+  text-decoration:none;padding:11px 16px;border-right:1px solid #26262A;transition:color .12s,background .12s}
+.nav-a:first-child{padding-left:0;border-left:none}
+.nav-a:hover{color:#FFFFFF;background:#141416}
+.nav-a.on{color:#BCE82F}
+.nav-tag{margin-left:auto;font-family:'SF Mono',Menlo,monospace;font-size:10px;letter-spacing:2.5px;
+  color:#8A8A8E;padding:11px 0}
+.tallies{border-bottom:1px solid #26262A}
+.tally{padding:18px 26px 18px 0;border-right:1px solid #26262A}
+.tally:last-child{border-right:none}
+.board{border:1px solid #26262A}
 .row{grid-template-columns:26px 44px minmax(0,1fr) minmax(0,1.1fr) auto 58px 74px}
 .op-tmpl{font-size:11px;color:#8A8A8E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lede{font-size:15px;color:#C9C9CD;margin:18px 0 4px;line-height:1.55}
@@ -285,10 +329,10 @@ _OPS_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>KYA · Operators</title><style>{css}</style></head><body><div class="wrap">
 <header class="top">
   <div class="brand">{eye}<h1>KYA</h1></div>
-  <div class="kicker">AGENT PASSPORT CONTROL · OPERATORS &nbsp;·&nbsp; <b>ONE FACE, MANY PASSPORTS</b></div>
+  {nav}
   <div class="lede">The marketplace shows you agents. It never shows you <b>who owns them</b> —
   OKX's own search API does not return the owner address. Group the same listings by wallet and
-  <b>one face is holding {top_n} passports</b>. Counts are what KYA has actually indexed, never
+  <b>one wallet is running {top_n} of them</b>. Counts are what KYA has actually indexed, never
   a claim about what it hasn't looked at.</div>
   <div class="tallies">{tally}</div>
 </header>

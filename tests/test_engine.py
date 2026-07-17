@@ -558,7 +558,7 @@ def test_operator_board_calls_a_farm_a_farm_and_spares_a_business():
     biz = {"owner": "0xb", "agents": 32, "sales": 69,
            "names": ["SignalDesk", "DefiMacro", "ChainPulse", "DepthCharge"]}
     thin = {"owner": "0xt", "agents": 4, "sales": 0, "names": ["A", "B", "C", "D"]}
-    assert _op_verdict(farm) == ("BLOCK", "ONE FACE")
+    assert _op_verdict(farm) == ("BLOCK", "ONE OWNER")
     assert _op_verdict(biz) == ("SAFE", "BUSINESS")
     assert _op_verdict(thin) == ("CAUTION", "THIN")
 
@@ -574,7 +574,7 @@ def test_operator_rows_are_colour_coded_by_verdict():
 
     # The farm is nearly dark; the real business glows. ONE hue — a traffic light would
     # say "bad/good"; luminance says how much light the operator EARNED.
-    assert _C["dark"] in farm and "ONE FACE" in farm
+    assert _C["dark"] in farm and "ONE OWNER" in farm
     assert _C["lime"] in biz and "BUSINESS" in biz
     assert _C["dark"] not in biz
 
