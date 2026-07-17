@@ -32,6 +32,16 @@ BUYER_WALLET = "0x88f53629d84abe6dffbacb15f6e1eb5464e2761b"  # #5290 ownerAddres
 AUDIT_PRICE = os.environ.get("KYA_AUDIT_PRICE", "$0.10")
 NETWORK_XLAYER = "eip155:196"
 
+# The x402 challenge's `resource.url` MUST be the ABSOLUTE public URL, not a path.
+# Measured against two APPROVED listings (2026-07-17): SlowMist #2155 (fee 0) advertises
+# "https://okxai.slowmist.ai/v1/review/url" and Otto AI #2118 (fee 0.001) advertises
+# "https://xlayer.ottoai.services/yield-copilot". KYA advertised the bare path "/audit",
+# and OKX rejected #5290 with "has not passed x402 standard validation" the same hour the
+# paid service was listed. The free /verify (hand-rolled challenge) always used an absolute
+# URL and had already passed x402 review — so the path form is the difference.
+PUBLIC_BASE = os.environ.get("KYA_PUBLIC_URL", "https://kya-production-f846.up.railway.app").rstrip("/")
+AUDIT_RESOURCE = f"{PUBLIC_BASE}/audit"
+
 
 def build_paid_middleware():
     """Return (middleware_fn, reason). middleware_fn is None if the paid tier can't mount
@@ -68,7 +78,7 @@ def build_paid_middleware():
                 price=AUDIT_PRICE,
                 network=NETWORK_XLAYER,
             )],
-            resource="/audit",
+            resource=AUDIT_RESOURCE,   # absolute URL — a bare path fails x402 validation
             description="KYA full audit: every signal, owner-fleet analysis, priced trust "
                         "(max_safe_usd), and the signed verdict timeline for one agent.",
             mime_type="application/json",
