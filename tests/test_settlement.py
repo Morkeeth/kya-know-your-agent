@@ -134,11 +134,12 @@ def test_usdt0_the_actual_x402_settlement_token_is_read():
 
 
 def test_flat_rate_pricing_is_not_by_itself_a_wash_signature():
-    """KNOWN DEFECT, pinned so the decision is explicit rather than forgotten.
+    """A fixed price yields identical amounts. That is a business model, not fraud.
 
-    An honest flat-price ASP with many distinct payers currently trips _looks_washed
-    purely because a fixed price yields identical amounts. This test documents the
-    CURRENT behaviour; flip the assertion when the predicate is fixed.
+    Was a real false positive: identical-amount detection was ungated, so an honest ASP
+    with 20 genuinely distinct payers scored washed (-30 critical, cap 44) purely for
+    having flat pricing — and flipped to clean if only the amounts varied. It fired
+    hardest on the well-behaved flat-price x402 sellers this oracle exists to certify.
     """
     from oracle.engine import _looks_washed
     honest_flat = {
@@ -147,5 +148,39 @@ def test_flat_rate_pricing_is_not_by_itself_a_wash_signature():
         "amounts": [0.1] * 20, "onchain_volume": 2.0, "tx_count": 20,
     }
     varied = dict(honest_flat, amounts=[round(0.1 + 0.01 * i, 2) for i in range(20)])
-    assert _looks_washed(varied) is False           # 20 distinct payers = clearly organic
-    assert _looks_washed(honest_flat) is True       # <- only difference is flat pricing
+    assert _looks_washed(varied) is False
+    assert _looks_washed(honest_flat) is False      # 20 distinct payers = organic
+
+
+def test_identical_amounts_still_catch_a_small_wash_cluster():
+    """Gating on payer diversity must not blunt the detector — it sharpens it.
+
+    Three wallets replaying six identical transfers previously slipped BOTH other
+    clauses (tx < 10 defeats tiny_payer_set, top1 0.33 defeats concentrated) and so
+    scored clean. Now the identical-amount clause catches it.
+    """
+    from oracle.engine import _looks_washed
+    small_wash = {
+        "distinct_payers": 3,
+        "payers": {f"0x{i:040x}": 0.2 for i in range(3)},
+        "amounts": [0.1] * 6, "onchain_volume": 0.6, "tx_count": 6,
+    }
+    assert _looks_washed(small_wash) is True
+
+    # And the classic signatures are untouched.
+    one_wallet = {"distinct_payers": 1, "payers": {"0xa": 5.0},
+                  "amounts": [0.5] * 10, "onchain_volume": 5.0, "tx_count": 10}
+    assert _looks_washed(one_wallet) is True
+
+
+def test_repeat_customers_at_a_flat_price_are_demand_not_a_wash():
+    """The other side of the line: 20 distinct wallets each buying TWICE at a fixed
+    price is 40 identical amounts and the strongest organic signal there is. It must
+    not be confused with a handful of wallets replaying a transfer."""
+    from oracle.engine import _looks_washed
+    repeat_business = {
+        "distinct_payers": 20,
+        "payers": {f"0x{i:040x}": 0.2 for i in range(20)},
+        "amounts": [0.1] * 40, "onchain_volume": 4.0, "tx_count": 40,
+    }
+    assert _looks_washed(repeat_business) is False

@@ -736,7 +736,23 @@ def _looks_washed(s: dict) -> bool:
         return True
     total = sum(payers.values()) or vol or 1.0
     top1 = (max(payers.values()) / total) if payers else 1.0
-    return (dp <= 3 and tx >= 10) or top1 >= 0.60 or _identical_ratio(amounts) >= 0.90
+
+    tiny_payer_set = dp <= 3 and tx >= 10     # volume from a handful of wallets
+    concentrated = top1 >= 0.60               # one wallet dominates the money
+    # Identical amounts alone are NOT a wash signature. A FLAT-RATE service emits
+    # identical amounts by construction — that is its price, not a bot replaying a
+    # transfer. Ungated, this clause called an honest ASP with 20 genuinely distinct
+    # payers each paying a fixed 0.10 washed (-30 critical, cap 44), and flipped to
+    # clean if only the amounts varied. It fired hardest on precisely the well-behaved
+    # flat-price x402 sellers this oracle exists to certify.
+    #
+    # The real signature is a HANDFUL of wallets EACH REPEATING the same amount, so
+    # require both: a small absolute payer set, and more transactions than payers can
+    # explain one-off. Repeat business from a wide payer base (20 payers, 40 identical
+    # txs) is organic demand and stays clean; 4 wallets replaying 8 identical transfers
+    # does not. Both thresholds are judgment, pinned by tests either side of the line.
+    replayed = (_identical_ratio(amounts) >= 0.90 and dp <= 4 and tx >= 2 * dp)
+    return tiny_payer_set or concentrated or replayed
 
 
 def _settlement_signal(s: dict) -> "Signal | None":
