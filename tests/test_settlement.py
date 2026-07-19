@@ -110,3 +110,42 @@ def test_settlement_absent_is_neutral():
     a = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep))
     b = score_agent(_asp(salesCount=300), _svc(ep, "0.10"), _healthy(ep), settlement=None)
     assert a.verdict == b.verdict == SAFE and a.score == b.score
+
+
+def test_usdt0_the_actual_x402_settlement_token_is_read():
+    """Regression: the x402 rail settles in USD₮0, which was missing from _TOKENS.
+
+    Verified on a real settled payment (tx 0x79b3dab1…, 2026-07-19): 0.1 moved through
+    contract 0x779ded0c…. With that contract absent the reader queried only USDC/USDT,
+    found nothing, and returned tx_count=0 — which the engine reads as "claimed sales
+    aren't backed by money" and as washed. A lookup miss shaped like a fraud finding.
+    """
+    from oracle import settlement
+    assert "0x779ded0c9e1022225f8e0630b35a9b54be713736" in settlement._TOKENS.values()
+
+    seen: list[str] = []
+
+    def fake_get(path, params):
+        seen.append(params["tokenContractAddress"])
+        return {"data": [{"transactionLists": []}]}
+
+    settlement.fetch_settlements("0x237eee4017b0e496a67d1c886150c0b19f459975", get=fake_get)
+    assert "0x779ded0c9e1022225f8e0630b35a9b54be713736" in seen
+
+
+def test_flat_rate_pricing_is_not_by_itself_a_wash_signature():
+    """KNOWN DEFECT, pinned so the decision is explicit rather than forgotten.
+
+    An honest flat-price ASP with many distinct payers currently trips _looks_washed
+    purely because a fixed price yields identical amounts. This test documents the
+    CURRENT behaviour; flip the assertion when the predicate is fixed.
+    """
+    from oracle.engine import _looks_washed
+    honest_flat = {
+        "distinct_payers": 20,
+        "payers": {f"0x{i:040x}": 0.1 for i in range(20)},
+        "amounts": [0.1] * 20, "onchain_volume": 2.0, "tx_count": 20,
+    }
+    varied = dict(honest_flat, amounts=[round(0.1 + 0.01 * i, 2) for i in range(20)])
+    assert _looks_washed(varied) is False           # 20 distinct payers = clearly organic
+    assert _looks_washed(honest_flat) is True       # <- only difference is flat pricing

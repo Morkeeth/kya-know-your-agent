@@ -12,11 +12,24 @@ DEFAULT-OFF. Activated only when BOTH are set:
   - KYA_SETTLEMENT=1
   - an OKLink key in OKLINK_API_KEY (or OKX_API_KEY)
 
-⚠️ UNVERIFIED ASSUMPTION (must be checked on a real settled tx before trusting the
-distinct-payer count): that the inbound transfer's `from` is the BUYER, not an OKX
-facilitator/settlement contract. If OKX routes buyer -> facilitator -> agent, every
-inbound `from` is the facilitator and distinct_payers collapses to 1. Until verified,
-keep this OFF. See docs/V2-RESEARCH.md and the slice-1 spike.
+✅ VERIFIED 2026-07-19 — the assumption HOLDS. Checked against a real settled x402 audit
+payment on X Layer (tx 0x79b3dab1fbcf7f89292186c8dd4f55baf15d8afb9f89f70859352e10a6ee0da2):
+
+    tx.from (gas payer) = 0x95b62c36…   <- facilitator submits and pays gas
+    Transfer log.from   = 0x88f53629…   <- the BUYER's own wallet
+    Transfer log.to     = 0x237eee40…   <- the agent's payTo
+
+The facilitator relays the transaction but the ERC-20 transfer moves buyer -> seller
+directly (EIP-3009 style), so the transfer's `from` IS the buyer and distinct_payers does
+NOT collapse to 1. This reader parses transfer logs, not tx.from, so it sees the buyer.
+
+⚠️ STILL OFF BY DEFAULT — one open scoring defect, see _looks_washed in engine.py: a
+flat-rate service produces ~100% identical amounts by construction, which that predicate
+treats as a wash signature. Measured: an honest ASP with 20 genuinely distinct payers all
+paying a fixed 0.10 scores looks_washed=True (-30, critical, cap 44); make the amounts
+vary and it flips to False. Fixed pricing is a business model, not fraud. Resolve that
+before enabling, or the first thing this feature does at scale is accuse well-behaved
+flat-price ASPs of washing.
 """
 from __future__ import annotations
 
@@ -28,6 +41,13 @@ _OKLINK_BASE = "https://www.oklink.com"
 _TOKENS = {  # X Layer stablecoin contracts (resolved live in the slice-1 spike)
     "USDC": "0x74b7f16337b8972027f6196a17a631ac6de26d22",
     "USDT": "0x1e4a5963abfd975d8c9021ce480b42188849d41d",
+    # USD₮0 is the token the x402 rail ACTUALLY settles in, and it was missing — so this
+    # reader was blind to the only transfers it exists to read. Verified on a real settled
+    # audit payment (tx 0x79b3dab1…, 2026-07-19): the transfer moved 0.1 of THIS contract.
+    # With it absent, fetch_settlements returned tx_count=0 for every x402 agent, which
+    # _settlement_signal reads as "claimed sales aren't backed by money" (cap 64) and
+    # _looks_washed reads as washed — a fraud-shaped accusation produced by a lookup miss.
+    "USDT0": "0x779ded0c9e1022225f8e0630b35a9b54be713736",
 }
 
 
