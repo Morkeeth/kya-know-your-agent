@@ -2,6 +2,7 @@
 
 Uses a temp DB per test (no shared state, no network)."""
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -79,16 +80,46 @@ def test_same_state_is_not_a_change(tmp_path):
 def test_uptime_needs_min_samples_then_computes(tmp_path):
     db = _db(tmp_path)
     ep = "https://a.com/x"
+    now = int(time.time())
     # 4 samples < min -> None
     for i in range(4):
         store.record_probes("2118", {ep: {"category": "api", "status": 200, "healthy": True,
-                                           "latency_ms": 100}}, ts=i, path=db)
+                                           "latency_ms": 100}}, ts=now - 100 + i, path=db)
     assert store.uptime("2118", path=db) is None
     # add a 5th, one of them unhealthy -> uptime = 4/5, p95 present
     store.record_probes("2118", {ep: {"category": "down", "status": None, "healthy": False,
-                                       "latency_ms": None}}, ts=5, path=db)
+                                       "latency_ms": None}}, ts=now - 95, path=db)
     up = store.uptime("2118", path=db)
     assert up and up[ep]["samples"] == 5 and up[ep]["uptime"] == 0.8
+
+
+def test_uptime_is_windowed_so_stale_failures_age_out(tmp_path):
+    """The window is what lets a recovered endpoint stop being punished.
+
+    Regression for the KYA self-scoring incident: a blocked event loop made the server
+    time out on its OWN probes, recording false unhealthy rows. With an unbounded query
+    those rows were permanent (1/9 needed 151 consecutive healthy probes to clear 95%).
+    Windowed, they age out — no row deletion, no oracle editing its own history.
+    """
+    db = _db(tmp_path)
+    ep = "https://a.com/x"
+    now = int(time.time())
+    old = now - 30 * 86400          # 30d ago: outside the 7d window
+    # 9 stale failures + 1 stale success — the corrupted history
+    for i in range(9):
+        store.record_probes("2118", {ep: {"category": "down", "status": None,
+                                          "healthy": False, "latency_ms": None}},
+                            ts=old + i, path=db)
+    # Outside the window entirely -> no signal at all, rather than a stale penalty.
+    assert store.uptime("2118", path=db) is None
+    # Fresh healthy probes inside the window are judged on their own merit.
+    for i in range(5):
+        store.record_probes("2118", {ep: {"category": "api", "status": 200,
+                                          "healthy": True, "latency_ms": 120}},
+                            ts=now - 60 + i, path=db)
+    up = store.uptime("2118", path=db)
+    assert up and up[ep]["samples"] == 5 and up[ep]["uptime"] == 1.0
+    # And the unbounded query would have said 5/14 = 0.357 — the bug this pins.
 
 
 # ------------------------------------------------------------- owner index (A5)

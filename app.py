@@ -15,6 +15,7 @@ import time
 import json
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from oracle import AgentNotFound
 from oracle import store
@@ -197,7 +198,13 @@ async def verify(
                 "returns": ["verdict SAFE|CAUTION|BLOCK", "score", "max_safe_usd", "signature"],
                 "verify_offline": "/pubkey",
             })
-    v, env = _verdict_for(_resolve(aid, nm))
+    # Off the event loop: _resolve + _verdict_for are fully synchronous (assess ->
+    # probe_endpoints -> ThreadPoolExecutor.map). Running them inline on an `async def`
+    # handler pins uvicorn's single loop thread for the whole verdict, so the server
+    # cannot even ACCEPT new connections meanwhile -- including KYA's own self-probe,
+    # which then times out at 4s and is recorded as "unreachable". That self-inflicted
+    # timeout is what drove #5290 to BLOCK/33 with 12% rolling uptime.
+    v, env = await run_in_threadpool(lambda: _verdict_for(_resolve(aid, nm)))
     body = v.to_dict()
     body["pronouncement"] = pronounce(v)   # KYA's voice (decoration; not signed)
     body["signature"] = env
@@ -223,7 +230,8 @@ async def audit(request: Request,
                     aid = str(src[k]); break
         except Exception:
             pass
-    v, env = _verdict_for(_resolve(aid, nm))
+    # Same blocking shape as /verify above -- keep both off the loop thread.
+    v, env = await run_in_threadpool(lambda: _verdict_for(_resolve(aid, nm)))
     return JSONResponse(audit_paid.full_audit(v.agent_id, v, env))
 
 

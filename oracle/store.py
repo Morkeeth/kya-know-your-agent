@@ -177,13 +177,32 @@ def record_probes(agent_id: str, probes: dict[str, dict], ts: int | None = None,
         )
 
 
-def uptime(agent_id: str, path: str | None = None, min_samples: int = 5) -> dict | None:
+UPTIME_WINDOW_DAYS = 7
+
+
+def uptime(agent_id: str, path: str | None = None, min_samples: int = 5,
+           window_days: int = UPTIME_WINDOW_DAYS) -> dict | None:
     """Rolling availability + P95 latency per endpoint, or None if too few samples.
-    Returns {endpoint: {"uptime": 0..1, "p95_latency_ms": int|None, "samples": n}}."""
+    Returns {endpoint: {"uptime": 0..1, "p95_latency_ms": int|None, "samples": n}}.
+
+    Windowed to the last `window_days` — the docstring always said "rolling", but the
+    query had no bound, so this was a LIFETIME average and no sample ever aged out. That
+    makes the metric unable to represent recovery: an endpoint that was down and is now
+    up stays penalised roughly forever (measured: 151 consecutive healthy probes needed
+    to clear 95% off a 1/9 history). A real window is also the honest alternative to
+    deleting rows when a probe bug is found — bad samples age out on their own instead
+    of a trust oracle editing its own history.
+
+    Fails safe: too few samples in-window returns None, and the engine only penalises
+    when history is present (engine.py `if history:`), so a sparse window never invents
+    a penalty.
+    """
+    cutoff = int(time.time()) - window_days * 86400
     with _conn(path) as con:
         rows = con.execute(
-            "SELECT endpoint, healthy, latency_ms FROM probe_samples WHERE agent_id=?",
-            (str(agent_id),),
+            "SELECT endpoint, healthy, latency_ms FROM probe_samples "
+            "WHERE agent_id=? AND ts>=?",
+            (str(agent_id), cutoff),
         ).fetchall()
     by_ep: dict[str, list] = {}
     for r in rows:
