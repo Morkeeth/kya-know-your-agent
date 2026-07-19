@@ -549,7 +549,19 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
     verdict = SAFE if score >= SAFE_MIN else CAUTION if score >= CAUTION_MIN else BLOCK
     max_safe = _safe_ceiling(verdict, confidence, volume)
 
-    reasons = _headline_reasons(signals, score, ceiling)
+    # WHICH signal set the ceiling — not just its value. A full-marketplace sweep
+    # (578 agents, 2026-07-19) found the score is effectively bimodal: 213 agents land on
+    # exactly 64 or 69, the two sales caps, with EMPTY bins at 65/67/68 and 70-73. For most
+    # of the marketplace the number is the sales cap wearing a score, and every other
+    # signal — security rating, uptime, domain age, x402 correctness, fleet analysis — is
+    # computed and then flattened. Two agents with very different risk both emerge as 69.
+    # Publishing the binding signal restores the lost information without weakening the
+    # cap: a reader can now tell "69 because nothing is proven yet" from "69 because
+    # something is wrong", which the bare number cannot express.
+    binding = sorted({s.key for s in signals
+                      if s.cap is not None and s.cap == ceiling}) if ceiling < raw else []
+
+    reasons = _headline_reasons(signals, score, ceiling, binding, raw)
     evidence = {
         "isAsp": True,
         "sales": sales,
@@ -559,6 +571,10 @@ def score_agent(agent_info: dict | None, services: list[dict], probes: dict[str,
         "serviceCount": len(services),
         "endpoints": {e: _live_label(probes.get(e, {})) for e in endpoints},
         "cappedAt": ceiling if ceiling < raw else None,
+        # The signal key(s) holding the ceiling down, and what the agent would have scored
+        # without it. `cappedAt: 69` alone says a ceiling bound; these say WHICH and HOW FAR.
+        "cappedBy": binding or None,
+        "uncappedScore": raw if ceiling < raw else None,
         # A caller extending real credit needs to know whether the ceiling is MEASURED
         # (on-chain money, counted) or a FLOOR (sales x cheapest fee, deliberately
         # conservative). Same number, very different epistemic weight — and a floor on a
@@ -665,8 +681,14 @@ def _confidence(agent_info: dict, services: list[dict], endpoints: list) -> int:
 _ALWAYS_SURFACE = {"owner_fleet_info"}
 
 
-def _headline_reasons(signals: list[Signal], score: int, ceiling: int) -> list[str]:
-    """The sharp, human-readable 'why' — criticals first, then the rest."""
+def _headline_reasons(signals: list[Signal], score: int, ceiling: int,
+                      binding: list[str] | None = None, raw: int | None = None) -> list[str]:
+    """The sharp, human-readable 'why' — criticals first, then the rest.
+
+    When a cap is what's holding the score down, say so explicitly. Otherwise a reader
+    sees 69 and cannot tell whether the agent is mediocre across the board or clean but
+    unproven — two very different things that the bare number renders identically.
+    """
     order = {"critical": 0, "warn": 1, "good": 2, "info": 3}
 
     def _rank(s: Signal):
@@ -684,7 +706,12 @@ def _headline_reasons(signals: list[Signal], score: int, ceiling: int) -> list[s
             continue
         mark = {"critical": "⛔", "warn": "⚠️", "good": "✅", "info": "ℹ️"}.get(s.severity, "•")
         out.append(f"{mark} {s.reason}")
-    return out[:6]
+    out = out[:6]
+    if binding and raw is not None and ceiling < raw:
+        names = ", ".join(binding)
+        out.append(f"ℹ️ Score capped at {ceiling} by [{names}] — would otherwise be {raw}. "
+                   f"The cap is the constraint here, not the other signals.")
+    return out
 
 
 def _digest(v: Verdict) -> str:

@@ -760,3 +760,30 @@ def test_jsonrpc_id_is_never_mistaken_for_an_agent_id():
     # a plain body may still use bare `id` as a convenience alias
     r2 = c.post("/verify", json={"id": "2118"})
     assert r2.status_code == 200 and r2.json()["agent_id"] == "2118"
+
+
+def test_cap_disclosure_names_the_signal_holding_the_score_down():
+    """A bare 69 cannot distinguish "clean but unproven" from "several things wrong".
+
+    Full-marketplace sweep 2026-07-19: 213 of 578 agents landed on exactly 64 or 69 — the
+    two sales caps — with EMPTY bins at 65/67/68 and 70-73. For most agents the score IS
+    the sales cap wearing a number, while security rating, uptime, domain age and x402
+    correctness are computed and then flattened. Publishing the binding signal restores
+    that information without weakening the cap.
+    """
+    from oracle.engine import score_agent
+    # A clean, well-behaved agent that simply has no sales yet.
+    info = {"name": "Clean", "salesCount": 0, "status": 1, "onlineStatus": 1,
+            "approvalStatus": 4, "securityRate": "4.8"}
+    services = [{"serviceName": "s", "fee": 0.1,
+                 "endpoint": "https://example.com/a"}]
+    probes = {"https://example.com/a": {"reachable": True, "healthy": True,
+                                        "status": 402, "latency_ms": 50}}
+    v = score_agent(info, services, probes, agent_id="1")
+    ev = v.evidence
+    assert ev["cappedAt"] is not None, "a no-sales agent must be capped"
+    assert ev["cappedBy"], "the binding signal must be named, not just its value"
+    assert "sales" in ev["cappedBy"]
+    assert ev["uncappedScore"] > v.score, "must show what it would have scored"
+    # and the human-readable list must say so in words
+    assert any("capped at" in r and "sales" in r for r in v.reasons)
