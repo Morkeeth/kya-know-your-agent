@@ -79,8 +79,21 @@ def build_paid_middleware():
                 network=NETWORK_XLAYER,
             )],
             resource=AUDIT_RESOURCE,   # absolute URL — a bare path fails x402 validation
+            # The usage line is NOT decoration — it is the only place a buyer learns that
+            # a param is required. x402 carries that contract in outputSchema.input, but
+            # okxweb3-app-x402 0.1.1 ships no extensions/ package (the middleware's bazaar
+            # import fails silently), so there is nowhere structured to put it yet. Without
+            # it a spec-correct client replays against resource.url — bare /audit, exactly
+            # as published — and gets 400 "provide ?agentId= or ?name=". Measured 2026-07-19:
+            # two of three purchase attempts failed that way, and only a hand-appended query
+            # string succeeded. A buyer reads that as "this service is broken".
+            # TODO: move to extensions={"bazaar": {...outputSchema.input...}} once the SDK
+            # ships it; keep this line regardless, it costs nothing and humans read it.
             description="KYA full audit: every signal, owner-fleet analysis, priced trust "
-                        "(max_safe_usd), and the signed verdict timeline for one agent.",
+                        "(max_safe_usd), and the signed verdict timeline for one agent. "
+                        "USAGE: the agent to audit is REQUIRED and must be passed in the "
+                        "QUERY STRING, not the body — GET /audit?agentId=<id> (or "
+                        "?name=<ASP name>). Example: /audit?agentId=2118",
             mime_type="application/json",
         )
         # The server needs the exact-EVM scheme mechanism registered for XLayer — the
