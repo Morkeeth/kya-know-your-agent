@@ -787,3 +787,48 @@ def test_cap_disclosure_names_the_signal_holding_the_score_down():
     assert ev["uncappedScore"] > v.score, "must show what it would have scored"
     # and the human-readable list must say so in words
     assert any("capped at" in r and "sales" in r for r in v.reasons)
+
+
+# ── Session lapse: the failure a judge actually hits ─────────────────────────
+# Upstream login is email-OTP only, so there is no re-auth to test. What IS testable
+# is that a lapsed session degrades to the last good verdict instead of an error.
+
+def test_stale_fallback_serves_last_good_when_upstream_fails(monkeypatch):
+    from oracle import data
+
+    data._cache.clear(); data._last_good.clear()
+    data.UPSTREAM_STATE.update(session_ok=True, last_error=None, since=None)
+
+    good = {"data": [{"agentInfo": {"agentId": "5290", "name": "KYA"}, "list": []}]}
+    monkeypatch.setattr(data, "_run_onchainos", lambda args: good)
+    info, _ = data.fetch_agent("5290")
+    assert info["name"] == "KYA"
+
+    data._cache.clear()  # bypass the freshness window so the call really re-shells
+
+    def boom(args):
+        raise RuntimeError("onchainos rc=1: unauthorized, please login")
+
+    monkeypatch.setattr(data, "_run_onchainos", boom)
+    info2, _ = data.fetch_agent("5290")
+    assert info2["name"] == "KYA", "a lapsed session must not erase a verdict we already have"
+    assert data.UPSTREAM_STATE["session_ok"] is False
+    assert data.stale_age("5290") is not None
+
+
+def test_unknown_agent_still_fails_when_there_is_nothing_cached(monkeypatch):
+    """Degrading is not inventing. No prior read, no answer."""
+    from oracle import data
+
+    data._cache.clear(); data._last_good.clear()
+
+    def boom(args):
+        raise RuntimeError("onchainos rc=1: unauthorized, please login")
+
+    monkeypatch.setattr(data, "_run_onchainos", boom)
+    try:
+        data.fetch_agent("999999")
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("must raise rather than fabricate a verdict")

@@ -113,7 +113,21 @@ def guide_md():
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "signing_key_source": _signer.source}
+    """Health reports the UPSTREAM session, not just that the process is alive.
+
+    A judge hitting a working process in front of a lapsed session is the failure this
+    exists to surface. There is no automatic recovery to offer -- login is email-OTP --
+    so the honest move is to make the state visible rather than pretend.
+    """
+    from oracle.data import UPSTREAM_STATE
+    ok = bool(UPSTREAM_STATE.get("session_ok", True))
+    out: dict = {"ok": True, "signing_key_source": _signer.source,
+                 "upstream_session": "ok" if ok else "expired"}
+    if not ok:
+        out["upstream_note"] = ("upstream session needs a human: `onchainos wallet login <email>` "
+                                "sends an OTP. Verdicts are still served from the last good read.")
+        out["upstream_last_error"] = UPSTREAM_STATE.get("last_error")
+    return out
 
 
 @app.get("/pubkey")
