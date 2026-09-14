@@ -31,4 +31,4 @@ ENV PORT=8000
 # so without these uvicorn builds request.url as http:// and the x402 challenge advertises
 # an http:// resource URL (verified against prod, Jul 17). A strict x402 client comparing
 # the challenge's resource.url to the https:// URL it called can reject the mismatch.
-CMD ["sh", "-c", "onchainos wallet login > /tmp/login.log 2>&1 || true; uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
+CMD ["sh", "-c", "sh scripts/restore-session.sh; onchainos wallet login > /tmp/login.log 2>&1 || true; uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
