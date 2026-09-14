@@ -3,7 +3,7 @@ FROM python:3.12-slim
 # curl + ca-certs for the Node setup script; Node 22 for the onchainos installer
 # (2026-09-14: OKX retired raw.githubusercontent.com/okx/onchainos-skills/main/install.sh,
 # the build failed with 404; the supported path is now `npx @okxweb3/onchainos-installer`).
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates gnupg git \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
