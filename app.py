@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 
 from oracle import AgentNotFound
 from oracle import store
-from oracle.data import resolve_agent_id
+from oracle.data import resolve_agent_id, probe_upstream, UPSTREAM_STATE
 from oracle.verify import assess
 from oracle.persona import pronounce, TAGLINE
 from oracle.seal import render_stamp, render_passport
@@ -42,6 +42,31 @@ if _paid_mw is not None:
     app.middleware("http")(_paid_mw)
 import sys as _sys  # noqa: E402
 print(f"[kya] paid tier: {_paid_reason}", file=_sys.stderr)
+
+
+@app.middleware("http")
+async def _upstream_gate(request: Request, call_next):
+    """Refuse to sell /audit while the upstream read path is dead.
+
+    2026-09-14: OKX unlisted #5290 because buyers paid for Agent Deep Audit and got a 502.
+    The x402 middleware minted a 402, the buyer settled it, and only then did the audit
+    discover the onchainos session had lapsed. Money in, nothing out. Starlette runs the
+    last-added middleware outermost, so this check sits in front of the payment gate:
+    a dead upstream answers 503 with instructions, never 402.
+    """
+    if request.url.path.rstrip("/") == "/audit":
+        ok = await run_in_threadpool(probe_upstream)
+        if not ok:
+            return JSONResponse(status_code=503, headers={"Retry-After": "600"}, content={
+                "ok": False,
+                "error": "upstream_unavailable",
+                "detail": "KYA cannot read OKX.AI right now, so the paid audit is not for sale. "
+                          "No payment was requested. Use the free /verify, which serves the last "
+                          "signed verdict marked stale, and retry /audit later.",
+                "upstream_last_error": UPSTREAM_STATE.get("last_error"),
+                "free_alternative": "/verify?agentId=<id>",
+            })
+    return await call_next(request)
 
 # Locks down the SVG document surface; img-src data: allows the embedded logo.
 _SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
@@ -119,14 +144,17 @@ def health() -> dict:
     exists to surface. There is no automatic recovery to offer -- login is email-OTP --
     so the honest move is to make the state visible rather than pretend.
     """
-    from oracle.data import UPSTREAM_STATE
-    ok = bool(UPSTREAM_STATE.get("session_ok", True))
-    out: dict = {"ok": True, "signing_key_source": _signer.source,
+    ok = probe_upstream()
+    out: dict = {"ok": ok, "process": "up", "signing_key_source": _signer.source,
                  "upstream_session": "ok" if ok else "expired"}
     if not ok:
-        out["upstream_note"] = ("upstream session needs a human: `onchainos wallet login <email>` "
-                                "sends an OTP. Verdicts are still served from the last good read.")
+        out["upstream_note"] = ("upstream read path is down. The container logs in with the OKX "
+                                "dev-portal API key (OKX_API_KEY / SECRET / PASSPHRASE); renew or "
+                                "replace it, or run `onchainos wallet login <email>` (OTP). "
+                                "/verify serves the last signed verdict marked stale; /audit is "
+                                "withdrawn from sale until this is green.")
         out["upstream_last_error"] = UPSTREAM_STATE.get("last_error")
+        out["upstream_since"] = UPSTREAM_STATE.get("since")
     return out
 
 
@@ -218,11 +246,43 @@ async def verify(
     # cannot even ACCEPT new connections meanwhile -- including KYA's own self-probe,
     # which then times out at 4s and is recorded as "unreachable". That self-inflicted
     # timeout is what drove #5290 to BLOCK/33 with 12% rolling uptime.
-    v, env = await run_in_threadpool(lambda: _verdict_for(_resolve(aid, nm)))
+    agent_id = _resolve(aid, nm)
+    try:
+        v, env = await run_in_threadpool(lambda: _verdict_for(agent_id))
+    except HTTPException as e:
+        if e.status_code != 502:
+            raise
+        stale = await run_in_threadpool(lambda: store.last_verdict(agent_id))
+        if not stale:
+            raise
+        return JSONResponse(_stale_body(stale, str(e.detail)))
     body = v.to_dict()
     body["pronouncement"] = pronounce(v)   # KYA's voice (decoration; not signed)
     body["signature"] = env
     return JSONResponse(body)
+
+
+def _stale_body(row: dict, upstream_error: str) -> dict:
+    """The last verdict KYA actually computed for this agent, served honestly.
+
+    The August fallback kept last-good reads in process memory; the container restarted
+    and every /verify became a 502 while the volume held months of verdicts. This reads
+    the store instead. The stored payload keeps its original digest; no new signature is
+    minted for evidence KYA did not re-check, so `signature` is null and `stale` is true."""
+    try:
+        body = json.loads(row["payload"])
+    except Exception:
+        body = {"agent_id": row["agent_id"], "verdict": row["verdict"], "score": row["score"],
+                "confidence": row["confidence"]}
+    age = int(time.time()) - int(row["issued_at"])
+    body["stale"] = True
+    body["stale_issued_at"] = int(row["issued_at"])
+    body["stale_age_s"] = age
+    body["signature"] = None
+    body["upstream_error"] = upstream_error[:200]
+    body["note"] = (f"KYA last checked this agent {age // 3600}h ago and could not re-check "
+                    "now (upstream read path down). Treat SAFE as CAUTION until fresh.")
+    return body
 
 
 @app.api_route("/audit", methods=["GET", "POST"])

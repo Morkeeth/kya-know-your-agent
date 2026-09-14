@@ -38,10 +38,35 @@ _last_good: dict[str, tuple[float, tuple[dict, list[dict]]]] = {}
 
 # Set when a call fails in a way that looks like an expired or missing session, so
 # /health can say so before a judge discovers it through a broken verify.
-UPSTREAM_STATE: dict[str, object] = {"session_ok": True, "last_error": None, "since": None}
+UPSTREAM_STATE: dict[str, object] = {"session_ok": True, "last_error": None, "since": None, "auth": False}
 
 _AUTH_HINTS = ("unauthor", "not logged in", "login required", "session", "token expired",
-               "401", "403", "please login")
+               "401", "403", "please login",
+               # 2026-09-14: production sat on "code=20003 msg=agent wallet refresh token
+               # error" for days while /health said ok, because none of the hints above
+               # matched it. The API-key trial expiring reports the same code family.
+               "refresh token", "trial expired", "20003")
+
+# Upstream liveness probe, cached. /health and the paid gate call this so the session
+# state flips BEFORE a buyer discovers it through a broken paid call. Agent 5290 is KYA
+# itself; the read is the same `agent service-list` every verdict starts with.
+_PROBE_AGENT = os.environ.get("KYA_PROBE_AGENT", "5290")
+_PROBE_TTL = float(os.environ.get("UPSTREAM_PROBE_TTL", "120"))
+_probe_at: list[float] = [0.0]
+
+
+def probe_upstream(force: bool = False) -> bool:
+    """True when the upstream read path works right now (cached for _PROBE_TTL seconds)."""
+    if not force and (time.time() - _probe_at[0]) < _PROBE_TTL:
+        return bool(UPSTREAM_STATE.get("session_ok", True))
+    _probe_at[0] = time.time()
+    try:
+        _run_onchainos(["agent", "service-list", "--agent-id", _PROBE_AGENT])
+    except RuntimeError as e:
+        UPSTREAM_STATE.update(session_ok=False, last_error=str(e)[:200], since=time.time())
+        return False
+    UPSTREAM_STATE.update(session_ok=True, last_error=None, since=None)
+    return True
 
 
 def _looks_like_auth_failure(msg: str) -> bool:
@@ -83,8 +108,10 @@ def fetch_agent(agent_id: str) -> tuple[dict, list[dict]]:
     except RuntimeError as e:
         # Upstream is down or the session lapsed. Prefer a stale truth to no answer.
         msg = str(e)
-        if _looks_like_auth_failure(msg):
-            UPSTREAM_STATE.update(session_ok=False, last_error=msg[:200], since=time.time())
+        # Any upstream read failure makes the paid tier unsafe to sell; auth-shaped ones
+        # additionally tell /health what a human must do.
+        UPSTREAM_STATE.update(session_ok=False, last_error=msg[:200], since=time.time(),
+                              auth=_looks_like_auth_failure(msg))
         stale = _last_good.get(key)
         if stale:
             return stale[1]
