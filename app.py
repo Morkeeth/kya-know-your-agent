@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 
 from oracle import AgentNotFound
 from oracle import store
-from oracle.data import resolve_agent_id, probe_upstream, UPSTREAM_STATE
+from oracle.data import resolve_agent_id, probe_upstream, fetch_agent, UPSTREAM_STATE
 from oracle.verify import assess
 from oracle.persona import pronounce, TAGLINE
 from oracle.seal import render_stamp, render_passport
@@ -44,19 +44,48 @@ import sys as _sys  # noqa: E402
 print(f"[kya] paid tier: {_paid_reason}", file=_sys.stderr)
 
 
-@app.middleware("http")
-async def _upstream_gate(request: Request, call_next):
-    """Refuse to sell /audit while the upstream read path is dead.
+class _AuditGate:
+    """Everything that must be settled BEFORE a buyer is asked to pay for /audit.
 
-    2026-09-14: OKX unlisted #5290 because buyers paid for Agent Deep Audit and got a 502.
-    The x402 middleware minted a 402, the buyer settled it, and only then did the audit
-    discover the onchainos session had lapsed. Money in, nothing out. Starlette runs the
-    last-added middleware outermost, so this check sits in front of the payment gate:
-    a dead upstream answers 503 with instructions, never 402.
+    Pure ASGI (not BaseHTTPMiddleware) so the request body can be read for validation
+    and replayed to the route. Added last, so it runs outermost, in front of the x402
+    payment middleware. Two refusals, both before any 402 is minted:
+
+      503  upstream read path dead. 2026-09-14: OKX unlisted #5290 because buyers paid
+           for Agent Deep Audit and got a 502; the session had lapsed and the payment
+           gate ran first. Money in, nothing out.
+      400 / 404  bad or unknown agentId. OKX's own remark on agent 2118 reads "parameter
+           validation should be completed before payment". A buyer who names nobody, or
+           an agent that does not exist, is told so for free.
     """
-    if request.url.path.rstrip("/") == "/audit":
-        ok = await run_in_threadpool(probe_upstream)
-        if not ok:
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope.get("path", "").rstrip("/") != "/audit":
+            return await self.app(scope, receive, send)
+        chunks = []
+        while True:
+            msg = await receive()
+            if msg["type"] == "http.request":
+                chunks.append(msg.get("body", b""))
+                if not msg.get("more_body"):
+                    break
+            elif msg["type"] == "http.disconnect":
+                return
+        body = b"".join(chunks)
+        refusal = await run_in_threadpool(lambda: self._refusal(scope, body))
+        if refusal is not None:
+            return await refusal(scope, receive, send)
+
+        async def replay():
+            return {"type": "http.request", "body": body, "more_body": False}
+        return await self.app(scope, replay, send)
+
+    @staticmethod
+    def _refusal(scope, body: bytes):
+        if not probe_upstream():
             return JSONResponse(status_code=503, headers={"Retry-After": "600"}, content={
                 "ok": False,
                 "error": "upstream_unavailable",
@@ -66,7 +95,54 @@ async def _upstream_gate(request: Request, call_next):
                 "upstream_last_error": UPSTREAM_STATE.get("last_error"),
                 "free_alternative": "/verify?agentId=<id>",
             })
-    return await call_next(request)
+        from urllib.parse import parse_qs
+        qs = parse_qs(scope.get("query_string", b"").decode("utf-8", "replace"))
+        aid = (qs.get("agentId") or [None])[0]
+        nm = (qs.get("name") or [None])[0]
+        if not (aid or nm) and body:
+            try:
+                payload = json.loads(body)
+                args = payload.get("params", {}) if isinstance(payload, dict) else {}
+                args = args.get("arguments", args) if isinstance(args, dict) else {}
+                src = {**(args if isinstance(args, dict) else {}), **(payload if isinstance(payload, dict) else {})}
+                for k in ("agentId", "agent_id", "id"):
+                    if src.get(k) is not None:
+                        aid = str(src[k]); break
+                nm = nm or src.get("name")
+            except ValueError:
+                pass
+        usage = {"usage": "GET /audit?agentId=<numeric OKX.AI agent id>, or POST {\"agentId\": \"2118\"}",
+                 "price": "0.10 USDT via x402, charged only after this validation passes"}
+        if not (aid or nm):
+            return JSONResponse(status_code=400, content={
+                "ok": False, "error": "missing_agent",
+                "detail": "Name the agent to audit. No payment was requested.", **usage})
+        if aid is not None and not str(aid).isdigit():
+            return JSONResponse(status_code=400, content={
+                "ok": False, "error": "bad_agent_id",
+                "detail": f"agentId must be numeric, got {str(aid)[:40]!r}. No payment was requested.",
+                **usage})
+        try:
+            resolved = _resolve(aid, nm)
+            fetch_agent(resolved)   # cached 60 s; the route reuses this read
+        except HTTPException as e:
+            return JSONResponse(status_code=e.status_code, content={
+                "ok": False, "error": "unknown_agent", "detail": f"{e.detail}. No payment was requested.",
+                **usage})
+        except AgentNotFound as e:
+            return JSONResponse(status_code=404, content={
+                "ok": False, "error": "unknown_agent", "detail": f"{e}. No payment was requested.",
+                **usage})
+        except RuntimeError as e:
+            UPSTREAM_STATE.update(session_ok=False, last_error=str(e)[:200], since=time.time())
+            return JSONResponse(status_code=503, headers={"Retry-After": "600"}, content={
+                "ok": False, "error": "upstream_unavailable",
+                "detail": "KYA could not read OKX.AI for this agent. No payment was requested.",
+                "upstream_last_error": str(e)[:200]})
+        return None
+
+
+app.add_middleware(_AuditGate)
 
 # Locks down the SVG document surface; img-src data: allows the embedded logo.
 _SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"

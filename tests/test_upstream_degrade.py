@@ -98,3 +98,59 @@ def test_health_goes_red_on_its_own(client, monkeypatch):
     assert body["ok"] is False
     assert body["upstream_session"] == "expired"
     assert "refresh token" in body["upstream_last_error"]
+
+
+# ---------------------------------------------------------- validation before payment
+def _alive_upstream(monkeypatch, agents=("2118",)):
+    from oracle import data
+    def ok(args):
+        aid = args[args.index("--agent-id") + 1] if "--agent-id" in args else None
+        if aid in agents:
+            return {"ok": True, "data": [{"agentInfo": {"agentId": aid, "name": "Otto AI",
+                                                          "approvalStatus": 4, "onlineStatus": 1,
+                                                          "status": 1, "salesCount": 169},
+                                            "list": []}]}
+        return {"ok": True, "data": []}
+    monkeypatch.setattr(data, "_run_onchainos", ok)
+    data._probe_at[0] = 0.0
+    data._cache.clear(); data._last_good.clear()
+
+
+def test_audit_missing_agent_is_400_before_payment(client, monkeypatch):
+    c, A = client
+    _alive_upstream(monkeypatch)
+    r = c.get("/audit")
+    assert r.status_code == 400
+    assert "payment-required" not in {k.lower() for k in r.headers}
+    assert r.json()["error"] == "missing_agent"
+
+
+def test_audit_non_numeric_agent_is_400_before_payment(client, monkeypatch):
+    c, A = client
+    _alive_upstream(monkeypatch)
+    r = c.post("/audit", json={"agentId": "otto; drop table"})
+    assert r.status_code == 400
+    assert r.json()["error"] == "bad_agent_id"
+
+
+def test_audit_unknown_agent_is_404_before_payment(client, monkeypatch):
+    c, A = client
+    _alive_upstream(monkeypatch, agents=("2118",))
+    r = c.get("/audit?agentId=424242")
+    assert r.status_code == 404
+    assert r.json()["error"] == "unknown_agent"
+    assert "No payment was requested" in r.json()["detail"]
+
+
+def test_audit_valid_agent_reaches_the_route_with_its_body(client, monkeypatch):
+    c, A = client
+    _alive_upstream(monkeypatch)
+    seen = {}
+    def fake_verdict_for(agent_id):
+        seen["agent_id"] = agent_id
+        v = _seed_verdict(agent_id)
+        return v, {"pubkey": "ab" * 32, "signature": "cd" * 64, "signed_at": 0, "expires_at": 1}
+    monkeypatch.setattr(A, "_verdict_for", fake_verdict_for)
+    r = c.post("/audit", json={"agentId": "2118"})
+    assert r.status_code == 200, r.text
+    assert seen["agent_id"] == "2118"      # the buffered body was replayed to the route
