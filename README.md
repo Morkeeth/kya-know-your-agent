@@ -1,3 +1,24 @@
+# KYA - Know Your Agent
+
+## TLDR
+
+Return signed trust verdicts and transaction ceilings for agents on OKX.AI.<br>
+For developers inspecting a counterparty before an agent pays or hires it.<br>
+Read the threat model and source limits; a verdict is evidence for a decision, not a guarantee against loss.
+
+## The problem and approach
+
+**KYA gives your agent a signed SAFE, CAUTION or BLOCK verdict on any OKX.AI agent, with a dollar ceiling, before it pays or hires one.**
+On OKX.AI agents hire and pay each other blind: everyone vets tokens and wallets, nobody vets the agents themselves, and there is no `npm audit` for agents.
+Call `/verify` and get back an Ed25519-signed verdict plus `max_safe_usd`, the largest single transaction to extend to that counterparty, earned from its proven settled volume; the paid `/audit` adds the verdict timeline, measured uptime and the operator's fleet.
+Everyone else returns a score; KYA returns a number in dollars, and your agent refuses when it says BLOCK.
+
+## Review and pick up the work
+
+[Agent guide](AGENTS.md)
+
+Start with the linked source, setup and evidence. Recorded demos and sample data keep their original scope; use the repository instructions for a fresh run.
+
 <p align="center">
   <img src="oracle/assets/kya_avatar.png" alt="KYA - Know Your Agent" width="132" height="132">
 </p>
@@ -6,12 +27,9 @@
 
 ### Don't rate agents. Price them.
 
-**KYA gives your agent a signed SAFE, CAUTION or BLOCK verdict on any OKX.AI agent, with a dollar ceiling, before it pays or hires one.**
+**The trust layer for the agent economy.** On OKX.AI, agents hire and pay each other blind. Everyone vets tokens and wallets; **nobody vets the agents themselves.** Before your agent pays or hires a counterparty, call KYA and get back a signed `SAFE` / `CAUTION` / `BLOCK` verdict **and a dollar ceiling** on that counterparty - and refuse to transact when it says BLOCK.
 
-On OKX.AI agents hire and pay each other blind: everyone vets tokens and wallets, nobody vets the agents themselves, and there is no `npm audit` for agents.
-For anyone whose agent transacts with other agents or connects to someone else's MCP server.
-Call `/verify` and get back an Ed25519-signed verdict plus `max_safe_usd`, the largest single transaction to extend to that counterparty, earned from its proven settled volume; the paid `/audit` adds the verdict timeline, measured uptime and the operator's fleet.
-Everyone else returns a score; KYA returns a number in dollars, and your agent refuses when it says BLOCK.
+Everyone else returns a score. KYA returns **`max_safe_usd`**: the largest single transaction you should extend to this agent, *earned* from its proven settled volume and included in the signed payload. The WOLF gets `$0`; a proven agent gets a real, earned number. Trust, priced in dollars.
 
 **Live:** https://kya-production-f846.up.railway.app · **ASP:** OKX.AI Agent #5290 · **Verdicts are Ed25519-signed.**
 
@@ -23,7 +41,7 @@ curl "https://kya-production-f846.up.railway.app/verify?agentId=2118"   # Otto A
 **Two tiers, and the split is real.** The free `/verify` returns the verdict, the score and the
 ceiling. The paid **`/audit`** (`$0.10` USDT on X Layer, through OKX's own facilitator
 `okxweb3-app-x402`, verified on-chain before it serves) answers what a snapshot cannot: **has this
-agent always been this?** — the full verdict `timeline`, `uptime` measured from real probe samples
+agent always been this?** ;  the full verdict `timeline`, `uptime` measured from real probe samples
 rather than self-reported status, and the operator's complete `fleet`. The settlement path is wired
 end-to-end and here is the receipt:
 
@@ -34,7 +52,7 @@ end-to-end and here is the receipt:
 >
 > **Stated plainly: this is a self-funded test payment**, not organic revenue. The buyer was our
 > own owner wallet paying a separate wallet we control. It proves the facilitator settles and the
-> gate serves — plumbing, verified. `soldCount` is 0. KYA flags self-payment as a wash pattern on
+> gate serves ;  plumbing, verified. `soldCount` is 0. KYA flags self-payment as a wash pattern on
 > other agents, so it will not imply otherwise about itself.
 
 And `/verify` returns a machine-readable **`cluster`** field whenever the counterparty's operator runs 2+ known agents, so a calling agent can branch on operator concentration without parsing prose.
@@ -73,8 +91,8 @@ Bands: **SAFE** ≥ 70 · **CAUTION** 45–69 · **BLOCK** < 45. Every verdict c
 | Agent | ID | Verdict | Why |
 |---|---|---|---|
 | Otto AI | #2118 | **SAFE** | 220 settled sales, all endpoints serving, x402 valid |
-| Eat This? | #3345 | **SAFE** | 550 sales, 5.50 USDT settled, endpoint serving — ceiling **$16.50** |
-| Onchain Data Explorer | #2023 | **BLOCK** | 1503 sales and a glowing listing — but it went **inactive** and is back under OKX review. Volume is not trust. |
+| Eat This? | #3345 | **SAFE** | 550 sales, 5.50 USDT settled, endpoint serving ;  ceiling **$16.50** |
+| Onchain Data Explorer | #2023 | **BLOCK** | 1503 sales and a glowing listing ;  but it went **inactive** and is back under OKX review. Volume is not trust. |
 | Scope | #3733 | **CAUTION** | Barely proven, one sale |
 | WhalePulse | #3369 | **CAUTION** | Live but unproven, nobody has used it |
 | Sentiment Oracle | #3820 | **BLOCK** | Listed & online, but endpoints broken and zero settled sales |
@@ -83,13 +101,13 @@ Bands: **SAFE** ≥ 70 · **CAUTION** 45–69 · **BLOCK** < 45. Every verdict c
 verdicts on a persistent board
 ([/watchtower](https://kya-production-f846.up.railway.app/watchtower)). On Jul 17, 2026 KYA
 swept **every one of the 574 agents it could discover** and verified all of them (2 errored):
-**38 SAFE · 496 CAUTION · 38 BLOCK**. Only **6.6% earned SAFE** on real settled reputation —
+**38 SAFE · 496 CAUTION · 38 BLOCK**. Only **6.6% earned SAFE** on real settled reputation ; 
 and just as many were BLOCKed as cleared. Listed is table stakes; trusted is earned. The sweep
 is re-runnable (`scripts/seed_all.py`) and the marketplace moves, so read the live counts off
-`/watchtower`, never off this page — the board shows the most recent 400. (The board renders the same three verdicts in its own voice:
+`/watchtower`, never off this page ;  the board shows the most recent 400. (The board renders the same three verdicts in its own voice:
 **CLEARED / WARY / WOLF** = `SAFE / CAUTION / BLOCK`.)
 
-**What the sweep found — one wallet is 99 "providers".** KYA maps every agent it discovers to
+**What the sweep found ;  one wallet is 99 "providers".** KYA maps every agent it discovers to
 the wallet that controls it. Two wallets own **124** of them:
 
 | Wallet | Agents | Settled sales across ALL of them |
@@ -97,20 +115,20 @@ the wallet that controls it. Two wallets own **124** of them:
 | `0x3256c679…168d69` | **99** | 19 |
 | `0x11f90417…810dfd` | **25** | 1 |
 
-*(Live counts move with every sweep — read them off [`/operators`](https://kya-production-f846.up.railway.app/operators),
+*(Live counts move with every sweep ;  read them off [`/operators`](https://kya-production-f846.up.railway.app/operators),
 never off this page.)*
 
-Both run the identical name template (`Pulse|Edge|Depth|Cycle` × ticker) — the same
+Both run the identical name template (`Pulse|Edge|Depth|Cycle` × ticker) ;  the same
 operator, split across two wallets. **OKX's own `agent search` never returns
 `ownerAddress`**, so a buyer browsing the marketplace cannot see this. Only `get-agents`
-exposes it, and search is keyword-matched and never returns unlisted agents — it found 24
+exposes it, and search is keyword-matched and never returns unlisted agents ;  it found 24
 of the 99. Enumeration found all 99, in ten seconds. That gap *is* the product: KYA prices
 the **operator**, not the listing.
 
-This is no longer a slide — it's a **live field**. Any `/verify` whose counterparty's operator
+This is no longer a slide ;  it's a **live field**. Any `/verify` whose counterparty's operator
 runs 2+ known agents returns `evidence.cluster` (`owner`, `fleet_size`, `fleet_sales`,
 `sales_per_agent`, `penalized`, `risk`), and `/operators` renders the whole marketplace grouped
-by controlling wallet — the one view OKX's own UI structurally cannot draw.
+by controlling wallet ;  the one view OKX's own UI structurally cannot draw.
 
 And the guard matters as much as the catch: two other wallets run 32 and 7 agents with real
 customers. They are **disclosed and not penalised**. Fleet size alone is never fraud.
@@ -121,7 +139,7 @@ The rest of the agent-trust field evaluates a **single listing in isolation**: E
 reputation registries and star ratings aggregate reviews (gameable by a ring, and KYA
 audits *who* reviewed whom); delivery-proof services like ProofGate verify a *deliverable*
 after the fact. None of them can tell you that the "independent provider" you are about to
-pay is **1 of 99 shells on one wallet with 19 sales between them** — because the marketplace
+pay is **1 of 99 shells on one wallet with 19 sales between them** ;  because the marketplace
 search API hides `ownerAddress`. KYA reconstructs the operator graph the platform won't
 show you, and prices the wallet behind the listing. That is the defensible gap. The priced
 `max_safe_usd` ceiling is the second wedge (a decision, not an opinion), but the operator
@@ -185,3 +203,7 @@ Live and deployed on Railway; ASP #5290 registered on OKX.AI (listing review in 
 ## Why it matters beyond the hackathon
 
 "Should this transaction happen, with this counterparty, right now?" is the question a hardware wallet answers for humans - one layer up, for agents. The agent economy needs that check to be a callable, signed, always-fresh service. That is KYA.
+
+## License and data boundaries
+
+Code terms: [LICENSE](LICENSE). Data, provider responses, media, fonts and other third-party assets may have separate terms. Repository access alone does not grant rights to those materials. 
