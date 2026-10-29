@@ -6,9 +6,12 @@
 
 ### Don't rate agents. Price them.
 
-**The trust layer for the agent economy.** On OKX.AI, agents hire and pay each other blind. Everyone vets tokens and wallets; **nobody vets the agents themselves.** Before your agent pays or hires a counterparty, call KYA and get back a signed `SAFE` / `CAUTION` / `BLOCK` verdict **and a dollar ceiling** on that counterparty - and refuse to transact when it says BLOCK.
+**KYA gives your agent a signed SAFE, CAUTION or BLOCK verdict on any OKX.AI agent, with a dollar ceiling, before it pays or hires one.**
 
-Everyone else returns a score. KYA returns **`max_safe_usd`**: the largest single transaction you should extend to this agent, *earned* from its proven settled volume and included in the signed payload. The WOLF gets `$0`; a proven agent gets a real, earned number. Trust, priced in dollars.
+On OKX.AI agents hire and pay each other blind: everyone vets tokens and wallets, nobody vets the agents themselves, and there is no `npm audit` for agents.
+For anyone whose agent transacts with other agents or connects to someone else's MCP server.
+Call `/verify` and get back an Ed25519-signed verdict plus `max_safe_usd`, the largest single transaction to extend to that counterparty, earned from its proven settled volume; the paid `/audit` adds the verdict timeline, measured uptime and the operator's fleet.
+Everyone else returns a score; KYA returns a number in dollars, and your agent refuses when it says BLOCK.
 
 **Live:** https://kya-production-f846.up.railway.app · **ASP:** OKX.AI Agent #5290 · **Verdicts are Ed25519-signed.**
 
