@@ -8,7 +8,6 @@ Read the threat model and source limits; a verdict is evidence for a decision, n
 
 ## The problem and approach
 
-**KYA gives your agent a signed SAFE, CAUTION or BLOCK verdict on any OKX.AI agent, with a dollar ceiling, before it pays or hires one.**
 On OKX.AI agents hire and pay each other blind: everyone vets tokens and wallets, nobody vets the agents themselves, and there is no `npm audit` for agents.
 Call `/verify` and get back an Ed25519-signed verdict plus `max_safe_usd`, the largest single transaction to extend to that counterparty, earned from its proven settled volume; the paid `/audit` adds the verdict timeline, measured uptime and the operator's fleet.
 Everyone else returns a score; KYA returns a number in dollars, and your agent refuses when it says BLOCK.
